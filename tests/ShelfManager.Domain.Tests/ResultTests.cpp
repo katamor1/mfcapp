@@ -39,8 +39,8 @@ TEST(ResultTests, RejectsWrongAccessor) {
     auto failure = Result<int>::Failure(
         {ErrorCode::InternalFailure, "failure"});
 
-    EXPECT_THROW(success.ErrorValue(), std::logic_error);
-    EXPECT_THROW(failure.Value(), std::logic_error);
+    EXPECT_THROW(static_cast<void>(success.ErrorValue()), std::logic_error);
+    EXPECT_THROW(static_cast<void>(failure.Value()), std::logic_error);
 }
 
 }  // namespace
