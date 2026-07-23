@@ -22,10 +22,8 @@ jobs:
         target:
           - solution_platform: x64
             project_platform: x64
-            triplet: x64-windows-static-md
           - solution_platform: x86
             project_platform: Win32
-            triplet: x86-windows-static-md
 
     steps:
       - name: Checkout
@@ -37,16 +35,7 @@ jobs:
 
       - name: Restore vcpkg dependencies
         shell: pwsh
-        run: |
-          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
-          if (-not $vcpkgRoot) {
-            throw "VCPKG_INSTALLATION_ROOT was not provided by the runner image."
-          }
-          $vcpkg = Join-Path $vcpkgRoot "vcpkg.exe"
-          & $vcpkg install --triplet "${{ matrix.target.triplet }}"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $vcpkg integrate install
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: ./tools/bootstrap-vcpkg.ps1 -Platform "${{ matrix.target.solution_platform }}"
 
       - name: Locate MSBuild
         id: msbuild
