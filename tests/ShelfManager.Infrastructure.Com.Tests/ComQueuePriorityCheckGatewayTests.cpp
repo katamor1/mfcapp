@@ -65,6 +65,8 @@ TEST(ComQueuePriorityCheckGatewayTests, ConvertsTypedRequestToBstrAndParsesOutpu
 
     ASSERT_TRUE(result.HasValue()) << result.ErrorValue().message;
     EXPECT_EQ(1, rawApi.callCount);
+    // SOURCE: BSTR境界ではUTF-16を使用するため、日本語の
+    // MachiningInstructionNameが欠落せずJSONへ渡ることを確認する。
     EXPECT_NE(std::wstring::npos, rawApi.capturedInput.find(L"加工ステップ"));
     // SOURCE: 外部JSON契約のフィールド名はToolidであり、
     // UTF-8 JSONからBSTRへ変換しても原表記を維持する。
