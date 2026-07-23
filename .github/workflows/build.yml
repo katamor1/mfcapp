@@ -28,10 +28,51 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Enforce C++17 source boundary
         shell: pwsh
         run: ./tools/check-cpp17-source.ps1
+
+      - name: Test comment policy checker
+        shell: pwsh
+        run: |
+          try {
+            ./tests/tools/CommentPolicyCheck.Tests.ps1 *>&1 |
+              Tee-Object -FilePath comment-policy-test.log
+          } catch {
+            $_ | Out-String | Tee-Object -FilePath comment-policy-test.log -Append
+            throw
+          }
+
+      - name: Enforce comment policy
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "pull_request") {
+            $arguments = @(
+              "-NoProfile",
+              "-File", "./tools/check-comment-policy.ps1",
+              "-BaseRef", "${{ github.event.pull_request.base.sha }}",
+              "-HeadRef", "${{ github.event.pull_request.head.sha }}"
+            )
+          } else {
+            $base = (& git merge-base HEAD origin/main).Trim()
+            if (-not $base) {
+              throw "Could not resolve merge-base against origin/main."
+            }
+            $arguments = @(
+              "-NoProfile",
+              "-File", "./tools/check-comment-policy.ps1",
+              "-BaseRef", $base,
+              "-HeadRef", "HEAD"
+            )
+          }
+
+          & pwsh @arguments *>&1 |
+            Tee-Object -FilePath comment-policy-enforcement.log
+          $checkExitCode = $LASTEXITCODE
+          exit $checkExitCode
 
       - name: Restore vcpkg dependencies
         shell: pwsh
@@ -72,6 +113,9 @@ jobs:
           name: msbuild-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}
           path: |
             cpp17-violations.txt
+            comment-policy-test.log
+            comment-policy-enforcement.log
+            comment-policy-violations.txt
             msbuild-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}.log
             msbuild-tail-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}.log
           if-no-files-found: warn

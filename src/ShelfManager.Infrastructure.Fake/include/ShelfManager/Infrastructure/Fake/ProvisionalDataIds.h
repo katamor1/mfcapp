@@ -4,8 +4,11 @@
 
 namespace ShelfManager::Infrastructure::Fake {
 
-// These IDs are temporary and intentionally centralized. Replace only this
-// catalog when the vendor assigns the production COM data IDs.
+// 正式COM dataIdが割り当てられるまでCSV Mockで使用する暫定Catalog。
+// 暫定値をDomain、Application、Presentationへ持ち込まず、この境界へ集約する。
+// SOURCE: docs/architecture/decisions/0007-use-provisional-sequential-data-ids-and-csv-mock.md。
+// 正式ID受領時はProduction用CatalogとAdapter契約テストを更新し、
+// 数値が同じであっても本enumを正式契約として流用しない。
 enum class ProvisionalDataId : std::uint32_t {
     MachineConnectionState = 1U,
     MachineMode = 2U,

@@ -12,6 +12,12 @@
 
 namespace ShelfManager::Infrastructure::Fake {
 
+// CSVまたはFakeScenarioの時系列Snapshotと要求記録を提供する開発用Gateway。
+// IMachineStateReader／IMachineCommandGatewayのApplication契約を再現するが、
+// COM apartment、Ethernet、BSTR、ベンダーtimeout、物理搬送は再現しない。
+//
+// THREAD: 公開操作は内部mutexで直列化する。
+// SAFETY: DisconnectedまたはStaleなFrameでは変更要求を拒否する。
 class FakeMachineGateway final
     : public ShelfManager::Application::IMachineStateReader,
       public ShelfManager::Application::IMachineCommandGateway {
@@ -35,6 +41,8 @@ public:
     RequestTransport(
         const ShelfManager::Application::TransportRequest& request) override;
 
+    // テスト用の同期遅延を設定する。実ネットワークの揺らぎは再現しない。
+    // UIスレッドから呼ぶ製品コード用途には使用しない。
     void SetLatency(std::chrono::milliseconds latency);
 
     [[nodiscard]] ShelfManager::Domain::MachineSnapshot CurrentSnapshot() const;
