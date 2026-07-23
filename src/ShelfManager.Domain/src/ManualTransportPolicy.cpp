@@ -35,8 +35,8 @@ TransportDecision ManualTransportPolicy::Evaluate(
 
 bool ManualTransportPolicy::IsTransportable(
     const WorkpieceSummary& workpiece) noexcept {
-    // SAFETY: MVP manual transport starts from a known rack slot; unknown or
-    // already-moving locations fail closed until the vendor contract says more.
+    // SAFETY: MVPの手動搬送元は確認済みのRackSlotに限定する。
+    // 所在不明、棚外、搬送中は正式なベンダー契約が確定するまで許可しない。
     if (!std::holds_alternative<RackSlot>(workpiece.location)) {
         return false;
     }
