@@ -82,6 +82,7 @@ jobs:
         with:
           name: msbuild-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}
           path: |
+            cpp17-violations.txt
             msbuild-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}.log
             msbuild-tail-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}.log
           if-no-files-found: warn

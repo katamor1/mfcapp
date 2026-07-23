@@ -27,9 +27,13 @@ foreach ($rule in $patterns) {
 }
 
 if ($violations.Count -ne 0) {
+    $violations | Set-Content "cpp17-violations.txt"
     Write-Host "C++17 compatibility check failed:"
     $violations | ForEach-Object { Write-Host "  $_" }
     exit 1
 }
 
+if (Test-Path "cpp17-violations.txt") {
+    Remove-Item "cpp17-violations.txt"
+}
 Write-Host "C++17 compatibility check passed."
