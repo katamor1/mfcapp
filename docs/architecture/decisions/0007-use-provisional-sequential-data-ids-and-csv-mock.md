@@ -1,90 +1,90 @@
-# ADR 0007: Use provisional sequential data IDs and a CSV response mock
+# ADR 0007: 連番の暫定データIDとCSV応答モックを使用する
 
-- **Status:** Accepted
-- **Date:** 2026-07-24
-- **Decision owner:** Product owner instruction
-- **Related design:** `docs/superpowers/specs/2026-07-23-shelf-manager-architecture-design.md`
-- **Related plan:** `docs/superpowers/plans/2026-07-23-shelf-manager-mvp-foundation-fake-vertical-slice.md`
+- **状態:** 承認済み
+- **決定日:** 2026-07-24
+- **決定者:** プロダクトオーナー指示
+- **関連設計書:** `docs/superpowers/specs/2026-07-23-shelf-manager-architecture-design.md`
+- **関連計画書:** `docs/superpowers/plans/2026-07-23-shelf-manager-mvp-foundation-fake-vertical-slice.md`
 
-## Context
+## 背景
 
-The vendor-assigned COM data IDs are not available yet. Development must continue without embedding guessed production identifiers throughout the GUI. The current response source must also be deterministic and editable without a running COM server.
+ベンダーが定める正式なCOMデータIDは、現時点では提供されていない。一方、GUI全体へ推測した本番IDを埋め込まずに開発を継続する必要がある。また、COMサーバーが動作していない環境でも、応答を決定論的に再現し、内容を容易に編集できる必要がある。
 
-The application already defines the replaceable high-level ports `IMachineStateReader` and `IMachineCommandGateway`. Both the CSV-backed mock and the future COM gateway must implement these ports; Presentation and Application code must not know which adapter is active.
+本アプリケーションは、差し替え可能な上位Portとして`IMachineStateReader`および`IMachineCommandGateway`を既に定義している。CSVモックと将来のCOM Gatewayは、いずれもこれらのPortを実装する。Presentation層およびApplication層は、現在どちらのアダプターが有効かを認識しない。
 
-## Decision
+## 決定
 
-Until the vendor data dictionary is supplied:
+ベンダーの正式なデータ辞書を受領するまで、次の方針を採用する。
 
-1. Use provisional data IDs starting at 1 and increasing without gaps.
-2. Keep the mapping in the single header `ProvisionalDataIds.h`.
-3. Read mock COM responses from `config/mock/machine-responses.csv`.
-4. Use the generic CSV address shape `at_ms,data_id,sub_id1,sub_id2,value` so each row corresponds to a future `Get(dataId, subId1, subId2)` response.
-5. A later row for the same address overrides its previous value from that timestamp onward.
-6. Parse the CSV into `FakeScenario`, then expose it through `FakeMachineGateway`, which implements the same Application ports as the future `ComMachineGateway`.
-7. Do not place provisional numeric IDs in Domain, Application, Presenter, or MFC View code.
+1. 暫定データIDは1から開始し、欠番なく連続して割り当てる。
+2. 割り当ては`ProvisionalDataIds.h`だけで管理する。
+3. COM応答のモックは`config/mock/machine-responses.csv`から読み込む。
+4. CSVは`at_ms,data_id,sub_id1,sub_id2,value`形式とし、各行を将来の`Get(dataId, subId1, subId2)`応答に対応させる。
+5. 同じアドレスに対する後の時刻の行は、その時刻以降、それ以前の値を上書きする。
+6. CSVを`FakeScenario`へ変換し、将来の`ComMachineGateway`と同じApplication Portを実装する`FakeMachineGateway`から公開する。
+7. Domain、Application、Presenter、MFC Viewのコードへ暫定IDの数値を記述しない。
 
-## Provisional ID catalog
+## 暫定IDカタログ
 
-| ID | Logical data | subId1 | subId2 | Access |
+| ID | 論理データ | subId1 | subId2 | アクセス |
 |---:|---|---|---|---|
-| 1 | Machine connection state | 0 | 0 | Read |
-| 2 | Machine mode | 0 | 0 | Read |
-| 3 | Machine error active | 0 | 0 | Read |
-| 4 | Machine warning active | 0 | 0 | Read |
-| 5 | Machine message | 0 | 0 | Read |
-| 6 | Rack level count | 0 | 0 | Read |
-| 7 | Rack position count | Rack level | 0 | Read |
-| 8 | Workpiece count | 0 | 0 | Read |
-| 9 | Workpiece ID by index | One-based list index | 0 | Read |
-| 10 | Workpiece location type | Workpiece ID | 0 | Read |
-| 11 | Workpiece location primary value | Workpiece ID | 0 | Read |
-| 12 | Workpiece location secondary value | Workpiece ID | 0 | Read |
-| 13 | Workpiece priority | Workpiece ID | 0 | Read/Write |
-| 14 | Workpiece status | Workpiece ID | 0 | Read |
-| 15 | Workpiece instruction count | Workpiece ID | 0 | Read |
-| 16 | Workpiece instruction name | Workpiece ID | One-based instruction index | Read |
-| 17 | Workpiece instruction order | Workpiece ID | One-based instruction index | Read/Write |
-| 18 | Destination count | 0 | 0 | Read |
-| 19 | Destination type | One-based destination index | 0 | Read |
-| 20 | Destination primary value | One-based destination index | 0 | Read |
-| 21 | Destination secondary value | One-based destination index | 0 | Read |
-| 22 | Destination availability | One-based destination index | 0 | Read |
-| 23 | Manual transport request | Workpiece ID | Destination index | Write |
+| 1 | 機械通信状態 | 0 | 0 | 読取 |
+| 2 | 機械運転モード | 0 | 0 | 読取 |
+| 3 | 機械エラー有無 | 0 | 0 | 読取 |
+| 4 | 機械ワーニング有無 | 0 | 0 | 読取 |
+| 5 | 機械メッセージ | 0 | 0 | 読取 |
+| 6 | 棚段数 | 0 | 0 | 読取 |
+| 7 | 棚段ごとの格納位置数 | 棚段 | 0 | 読取 |
+| 8 | ワーク件数 | 0 | 0 | 読取 |
+| 9 | 一覧インデックスごとのワークID | 1始まりの一覧インデックス | 0 | 読取 |
+| 10 | ワーク所在種別 | ワークID | 0 | 読取 |
+| 11 | ワーク所在の第1値 | ワークID | 0 | 読取 |
+| 12 | ワーク所在の第2値 | ワークID | 0 | 読取 |
+| 13 | ワーク加工順位 | ワークID | 0 | 読取／書込 |
+| 14 | ワーク状態 | ワークID | 0 | 読取 |
+| 15 | ワークの加工指示書件数 | ワークID | 0 | 読取 |
+| 16 | 加工指示書名 | ワークID | 1始まりの指示書インデックス | 読取 |
+| 17 | 加工指示書実行順 | ワークID | 1始まりの指示書インデックス | 読取／書込 |
+| 18 | 搬送先件数 | 0 | 0 | 読取 |
+| 19 | 搬送先種別 | 1始まりの搬送先インデックス | 0 | 読取 |
+| 20 | 搬送先の第1値 | 1始まりの搬送先インデックス | 0 | 読取 |
+| 21 | 搬送先の第2値 | 1始まりの搬送先インデックス | 0 | 読取 |
+| 22 | 搬送先利用可否 | 1始まりの搬送先インデックス | 0 | 読取 |
+| 23 | 手動搬送要求 | ワークID | 搬送先インデックス | 書込 |
 
-IDs are provisional. When production IDs arrive, change the catalog and adapter contract tests rather than the use cases or views.
+これらのIDは暫定値である。正式IDを受領した後は、Use CaseやViewではなく、カタログとアダプター契約テストを変更する。
 
-## CSV value vocabulary
+## CSVで使用する値
 
-- Connection: `connected`, `degraded`, `disconnected`, `unknown`
-- Machine mode: `manual`, `automatic_scheduled`, `unknown`
-- Boolean: `0`, `1`, `false`, `true`
-- Workpiece status: `waiting`, `machining`, `completed`, `interrupted_abnormally`, `in_transport`, `unknown`
-- Workpiece location: `rack`, `setup`, `machining`, `transport`, `unknown`
-- Destination type: `rack`, `setup`, `machining`
-- Destination availability: `available`, `occupied`, `unavailable`, `unknown`
+- 通信状態: `connected`、`degraded`、`disconnected`、`unknown`
+- 運転モード: `manual`、`automatic_scheduled`、`unknown`
+- 真偽値: `0`、`1`、`false`、`true`
+- ワーク状態: `waiting`、`machining`、`completed`、`interrupted_abnormally`、`in_transport`、`unknown`
+- ワーク所在: `rack`、`setup`、`machining`、`transport`、`unknown`
+- 搬送先種別: `rack`、`setup`、`machining`
+- 搬送先利用可否: `available`、`occupied`、`unavailable`、`unknown`
 
-CSV quoting follows the common double-quote convention; a comma-containing value may be written as `"normal, ready"`, and an embedded quote is doubled.
+CSVの引用符は一般的な二重引用符方式に従う。カンマを含む値は`"normal, ready"`のように記述し、値中の二重引用符は二つ重ねる。
 
-## Consequences
+## 結果
 
-### Positive
+### 利点
 
-- UI and use-case development can continue without the COM server.
-- Test scenarios are source-controlled and deterministic.
-- The future COM change is an adapter replacement rather than a Presentation/Application rewrite.
-- Temporary IDs are auditable and cannot silently spread through the codebase.
+- COMサーバーがなくても、UIおよびUse Caseの開発を継続できる。
+- テストシナリオをバージョン管理し、決定論的に再現できる。
+- 将来のCOM対応はPresentation／Applicationの書き直しではなく、アダプターの差し替えとして実施できる。
+- 暫定IDの所在を監査でき、コードベースへ暗黙に拡散することを防げる。
 
-### Negative
+### 欠点と制約
 
-- The provisional catalog is not a vendor contract and must not be deployed as though it were one.
-- CSV timing simulates responses but does not prove COM apartment, latency, HRESULT, BSTR ownership, or network behavior.
-- Production integration still requires the vendor type library, definitive data dictionary, error semantics, and simulator or real machine.
+- 暫定カタログはベンダーとの正式契約ではなく、本番用として扱ってはならない。
+- CSVによる時刻付き応答は、COM Apartment、実際の遅延、HRESULT、BSTR所有権、ネットワーク挙動を検証するものではない。
+- 本番連携には、ベンダーの型ライブラリ、正式データ辞書、エラー仕様、およびシミュレーターまたは実機が必要である。
 
-## Verification
+## 検証方法
 
 - `CsvScenarioLoaderTests.ProvisionalDataIdsAreSequentialFromOne`
 - `CsvScenarioLoaderTests.LoadsFramesAndCarriesForwardUnchangedResponses`
 - `CsvScenarioLoaderTests.RejectsDuplicateAddressAtTheSameTimestamp`
 - `CsvScenarioLoaderTests.RejectsMissingRequiredResponses`
-- GitHub Actions matrix: Debug/Release × Win32/x64
+- GitHub ActionsのDebug/Release × Win32/x64マトリクス
