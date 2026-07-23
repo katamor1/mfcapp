@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include <OleAuto.h>
 #include <Windows.h>
+#include <OleAuto.h>
 
 #include <filesystem>
 #include <fstream>
