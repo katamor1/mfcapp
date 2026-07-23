@@ -10,6 +10,8 @@
 
 namespace ShelfManager::Domain {
 
+// 一つの工具について加工場管理システムへ渡す予定使用量。
+// usageTimeの単位は正式な外部契約が確定するまで変換せず整数値で保持する。
 struct ToolUsageRequirement final {
     std::uint64_t toolId;
     std::uint64_t usageTime;
@@ -68,6 +70,8 @@ struct QueuePriorityCheckWorkpiece final {
     }
 };
 
+// 加工可否判定へ渡す現在の加工待ちキュー全体。
+// workpiecesはQueuePriority順で、1から重複・欠番なく連続することを前提とする。
 struct QueuePriorityCheckRequest final {
     std::vector<QueuePriorityCheckWorkpiece> workpieces;
 
@@ -95,6 +99,8 @@ enum class WorkpieceExecutability {
     NotExecutable
 };
 
+// 加工場管理システムが返した工具可用性。
+// remainLifeTimeは負値を許容し、StatusがNotFoundの場合だけ欠落を許容する。
 struct ToolAvailabilityResult final {
     std::uint64_t toolId;
     std::uint64_t totalUsageTime;
@@ -139,6 +145,7 @@ struct WorkpieceExecutabilityResult final {
     }
 };
 
+// 外部APIのWorkpiece別判定結果。配列順は信頼せず、PolicyはWorkpieceIdで照合する。
 struct QueuePriorityCheckResponse final {
     std::vector<WorkpieceExecutabilityResult> workpieces;
 
@@ -155,14 +162,22 @@ struct QueuePriorityCheckResponse final {
     }
 };
 
+// 判定後の全順序、実際に必要な書込み計画、次の搬送候補をまとめた結果。
+// firstExecutableWorkpieceがnulloptの場合、加工場へ搬送可能な候補はない。
 struct QueuePriorityAdjustmentOutcome final {
     PriorityChangePlan priorityChangePlan;
     std::vector<WorkpieceId> orderedWorkpieceIds;
     std::optional<WorkpieceId> firstExecutableWorkpiece;
 };
 
+// 加工可否結果を現在キューへ適用する純粋Domain Policy。
+// Executable群を先頭、NotExecutable群を末尾へ安定区分し、各群内の元の
+// 相対順を維持したままQueuePriorityを1から再採番する。
 class QueuePriorityAdjustmentPolicy final {
 public:
+    // currentQueue、request、responseのWorkpiece集合・順位・重複を検証し、
+    // 不一致時はConflictまたはInvalidResponseとして書込み計画を生成しない。
+    // 全件NotExecutableの場合は元の相対順を維持し、搬送候補なしを返す。
     [[nodiscard]] static Result<QueuePriorityAdjustmentOutcome> Plan(
         SnapshotVersion baseVersion,
         const std::vector<WorkpieceSummary>& currentQueue,
