@@ -30,9 +30,9 @@ HRESULT FileBackedQueuePriorityCheckApi::Check(BSTR input, BSTR* output) {
         return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
     }
 
-    const std::string utf8(
+    const std::string utf8{
         std::istreambuf_iterator<char>(file),
-        std::istreambuf_iterator<char>());
+        std::istreambuf_iterator<char>()};
     if (utf8.size() > static_cast<std::size_t>(INT_MAX)) {
         return E_INVALIDARG;
     }
