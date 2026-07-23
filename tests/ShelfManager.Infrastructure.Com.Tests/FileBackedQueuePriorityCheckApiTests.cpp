@@ -48,6 +48,8 @@ QueuePriorityCheckRequest Request() {
 }
 
 TEST(FileBackedQueuePriorityCheckApiTests, SuppliesJsonThroughTheSameBstrGateway) {
+    // SOURCE: このDoubleはoutput.json相当の構造とBSTR受渡しだけを再現する。
+    // 工具残寿命の計算結果そのものは固定Fixtureを返す。
     TemporaryJsonFile file(R"json(
 {"Root":{"Workpieces":[{"WorkpieceId":1,"QueuePriority":1,
 "Tools":[],"Executable":"OK"}]}}
