@@ -1,0 +1,112 @@
+{
+    "Root":
+    {
+        "Workpieces":
+        [
+            {
+                "WorkpieceId": 1,
+                "QueuePriority": 1,
+                "MachiningInstructionRef":
+                [
+                    {
+                        "MachiningInstructionName": "step1",
+                        "InstructionOrder": 1,
+                        "Tools":
+                        [
+                            {
+                                "Toolid": 1,
+                                "UsageTime": 12
+                            },
+                            {
+                                "Toolid": 3,
+                                "UsageTime": 150
+                            }
+                        ]
+                    },
+                    {
+                        "MachiningInstructionName": "step2",
+                        "InstructionOrder": 2,
+                        "Tools":
+                        [
+                            {
+                                "Toolid": 2,
+                                "UsageTime": 110
+                            },
+                            {
+                                "Toolid": 3,
+                                "UsageTime": 180
+                            }
+                        ]
+                    },
+                    {
+                        "MachiningInstructionName": "step3",
+                        "InstructionOrder": 3,
+                        "Tools":
+                        [
+                            {
+                                "Toolid": 11,
+                                "UsageTime": 99
+                            },
+                            {
+                                "Toolid": 4,
+                                "UsageTime": 60
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "WorkpieceId": 3,
+                "QueuePriority": 2,
+                "MachiningInstructionRef":
+                [
+                    {
+                        "MachiningInstructionName": "step1",
+                        "InstructionOrder": 1,
+                        "Tools":
+                        [
+                            {
+                                "Toolid": 1,
+                                "UsageTime": 12
+                            },
+                            {
+                                "Toolid": 3,
+                                "UsageTime": 150
+                            }
+                        ]
+                    },
+                    {
+                        "MachiningInstructionName": "step2-1",
+                        "InstructionOrder": 2,
+                        "Tools":
+                        [
+                            {
+                                "Toolid": 102,
+                                "UsageTime": 110
+                            },
+                            {
+                                "Toolid": 103,
+                                "UsageTime": 180
+                            }
+                        ]
+                    },
+                    {
+                        "MachiningInstructionName": "step2-2",
+                        "InstructionOrder": 3,
+                        "Tools":
+                        [
+                            {
+                                "Toolid": 111,
+                                "UsageTime": 99
+                            },
+                            {
+                                "Toolid": 104,
+                                "UsageTime": 60
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}
