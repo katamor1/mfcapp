@@ -59,13 +59,31 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          & "${{ steps.msbuild.outputs.path }}" mfcapp.slnx /m `
+          $diagnosticLog = "msbuild-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}.log"
+          $tailLog = "msbuild-tail-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}.log"
+          & "${{ steps.msbuild.outputs.path }}" mfcapp.slnx /m /nologo /verbosity:minimal `
+            /fileLogger /fileLoggerParameters:"LogFile=$diagnosticLog;Verbosity=diagnostic" `
             /p:Configuration="${{ matrix.configuration }}" `
             /p:Platform="${{ matrix.target.solution_platform }}" `
             /p:VcpkgEnableManifest=true `
             /p:VcpkgRoot="$env:VCPKG_INSTALLATION_ROOT\" `
             /p:VcpkgTriplet="${{ matrix.target.triplet }}"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $buildExitCode = $LASTEXITCODE
+          if (Test-Path $diagnosticLog) {
+            Get-Content $diagnosticLog -Tail 160 | Set-Content $tailLog
+          }
+          exit $buildExitCode
+
+      - name: Upload MSBuild diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: msbuild-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}
+          path: |
+            msbuild-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}.log
+            msbuild-tail-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}.log
+          if-no-files-found: warn
+          retention-days: 3
 
       - name: Run tests
         shell: pwsh
