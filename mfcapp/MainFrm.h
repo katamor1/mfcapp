@@ -27,14 +27,14 @@ public:
     void Dump(CDumpContext& dc) const override;
 #endif
 
+    // CMainFrameがWindow lifetimeを所有するClient View。
+    // 既存MFC Shellとの互換性のため公開範囲を維持する。
+    CChildView m_wndView;
+
 protected:
     DECLARE_DYNAMIC(CMainFrame)
 
     afx_msg int OnCreate(LPCREATESTRUCT lpCreateStruct);
     afx_msg void OnSetFocus(CWnd* pOldWnd);
     DECLARE_MESSAGE_MAP()
-
-private:
-    // CMainFrameがWindow lifetimeを所有するClient View。
-    CChildView m_wndView;
 };
