@@ -50,16 +50,29 @@ jobs:
         shell: pwsh
         run: |
           if ("${{ github.event_name }}" -eq "pull_request") {
-            ./tools/check-comment-policy.ps1 `
-              -BaseRef "${{ github.event.pull_request.base.sha }}" `
-              -HeadRef "${{ github.event.pull_request.head.sha }}"
+            $arguments = @(
+              "-NoProfile",
+              "-File", "./tools/check-comment-policy.ps1",
+              "-BaseRef", "${{ github.event.pull_request.base.sha }}",
+              "-HeadRef", "${{ github.event.pull_request.head.sha }}"
+            )
           } else {
             $base = (& git merge-base HEAD origin/main).Trim()
             if (-not $base) {
               throw "Could not resolve merge-base against origin/main."
             }
-            ./tools/check-comment-policy.ps1 -BaseRef $base -HeadRef HEAD
+            $arguments = @(
+              "-NoProfile",
+              "-File", "./tools/check-comment-policy.ps1",
+              "-BaseRef", $base,
+              "-HeadRef", "HEAD"
+            )
           }
+
+          & pwsh @arguments *>&1 |
+            Tee-Object -FilePath comment-policy-enforcement.log
+          $checkExitCode = $LASTEXITCODE
+          exit $checkExitCode
 
       - name: Restore vcpkg dependencies
         shell: pwsh
@@ -101,6 +114,7 @@ jobs:
           path: |
             cpp17-violations.txt
             comment-policy-test.log
+            comment-policy-enforcement.log
             comment-policy-violations.txt
             msbuild-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}.log
             msbuild-tail-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}.log
