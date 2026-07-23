@@ -1,45 +1,40 @@
-﻿
 // MainFrm.h : CMainFrame クラスのインターフェイス
 //
-
 #pragma once
+
 #include "ChildView.h"
 
-class CMainFrame : public CFrameWnd
-{
-	
+// MFC ShellのTop-level Frame。
+// Client領域を所有するCChildViewの生成、Focus、Command routingだけを担当し、
+// Domain判断や機械通信を直接実行しない。
+class CMainFrame : public CFrameWnd {
 public:
-	CMainFrame() noexcept;
-protected: 
-	DECLARE_DYNAMIC(CMainFrame)
+    CMainFrame() noexcept;
+    ~CMainFrame() override;
 
-// 属性
-public:
+    // Shell用Window styleとWindow classを設定する。
+    BOOL PreCreateWindow(CREATESTRUCT& cs) override;
 
-// 操作
-public:
+    // CommandをCChildViewへ先に配送し、未処理の場合だけCFrameWndへ委譲する。
+    BOOL OnCmdMsg(
+        UINT nID,
+        int nCode,
+        void* pExtra,
+        AFX_CMDHANDLERINFO* pHandlerInfo) override;
 
-// オーバーライド
-public:
-	virtual BOOL PreCreateWindow(CREATESTRUCT& cs);
-	virtual BOOL OnCmdMsg(UINT nID, int nCode, void* pExtra, AFX_CMDHANDLERINFO* pHandlerInfo);
-
-// 実装
-public:
-	virtual ~CMainFrame();
 #ifdef _DEBUG
-	virtual void AssertValid() const;
-	virtual void Dump(CDumpContext& dc) const;
+    void AssertValid() const override;
+    void Dump(CDumpContext& dc) const override;
 #endif
 
-	CChildView    m_wndView;
-
-// 生成された、メッセージ割り当て関数
 protected:
-	afx_msg int OnCreate(LPCREATESTRUCT lpCreateStruct);
-	afx_msg void OnSetFocus(CWnd *pOldWnd);
-	DECLARE_MESSAGE_MAP()
+    DECLARE_DYNAMIC(CMainFrame)
 
+    afx_msg int OnCreate(LPCREATESTRUCT lpCreateStruct);
+    afx_msg void OnSetFocus(CWnd* pOldWnd);
+    DECLARE_MESSAGE_MAP()
+
+private:
+    // CMainFrameがWindow lifetimeを所有するClient View。
+    CChildView m_wndView;
 };
-
-
