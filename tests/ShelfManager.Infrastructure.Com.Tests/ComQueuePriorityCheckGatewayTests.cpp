@@ -13,6 +13,9 @@ namespace {
 
 using namespace ShelfManager::Domain;
 
+// Raw API境界だけを再現するTest Double。
+// outputはSysAllocStringLenで確保し、ComQueuePriorityCheckGateway側の
+// RAII所有者がSysFreeStringで解放する前提を検証する。
 class RecordingRawQueuePriorityCheckApi final
     : public IRawQueuePriorityCheckApi {
 public:
@@ -63,6 +66,8 @@ TEST(ComQueuePriorityCheckGatewayTests, ConvertsTypedRequestToBstrAndParsesOutpu
     ASSERT_TRUE(result.HasValue()) << result.ErrorValue().message;
     EXPECT_EQ(1, rawApi.callCount);
     EXPECT_NE(std::wstring::npos, rawApi.capturedInput.find(L"加工ステップ"));
+    // SOURCE: 外部JSON契約のフィールド名はToolidであり、
+    // UTF-8 JSONからBSTRへ変換しても原表記を維持する。
     EXPECT_NE(std::wstring::npos, rawApi.capturedInput.find(L"\"Toolid\""));
     ASSERT_EQ(1U, result.Value().workpieces.size());
     EXPECT_EQ(WorkpieceExecutability::Executable,
@@ -87,6 +92,8 @@ TEST(ComQueuePriorityCheckGatewayTests, RejectsSuccessfulCallWithNullOutput) {
 
     const auto result = gateway.Check(RequestWithUnicodeInstruction());
 
+    // SAFETY: HRESULTがS_OKでもoutput BSTRがnullなら判定結果は不明であり、
+    // 実行可能扱いへフォールバックしない。
     ASSERT_FALSE(result.HasValue());
     EXPECT_EQ(ErrorCode::InvalidResponse, result.ErrorValue().code);
 }
