@@ -188,6 +188,8 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, ApiFailureDoesNotWritePriority) {
         SnapshotVersion(1U),
         Request());
 
+    // SAFETY: 加工可否を取得できない場合は順位を書かず、
+    // 自動運転開始の判断に使える成功結果を返さない。
     ASSERT_FALSE(outcome.HasValue());
     EXPECT_EQ(ErrorCode::Unavailable, outcome.ErrorValue().code);
     EXPECT_EQ(0, commandGateway.priorityCallCount);
@@ -216,6 +218,8 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, SnapshotChangeDuringApiCallIsConfl
         SnapshotVersion(1U),
         Request());
 
+    // SAFETY: 外部API呼出し中にSnapshotVersionが変わった場合、
+    // 古い判定結果を新しいキューへ適用しない。
     ASSERT_FALSE(outcome.HasValue());
     EXPECT_EQ(ErrorCode::Conflict, outcome.ErrorValue().code);
     EXPECT_EQ(0, commandGateway.priorityCallCount);
@@ -239,6 +243,8 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, AllNgReturnsNoCandidateWithoutWrit
         SnapshotVersion(1U),
         Request());
 
+    // WHY: 全件NGでは相対順が変わらないため順位書込みは不要だが、
+    // 加工場へ搬送できる先頭候補は存在しない。
     ASSERT_TRUE(outcome.HasValue()) << outcome.ErrorValue().message;
     EXPECT_FALSE(outcome.Value().priorityChanged);
     EXPECT_FALSE(outcome.Value().firstExecutableWorkpiece.has_value());
@@ -264,6 +270,8 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, ReadbackMismatchIsFailure) {
         SnapshotVersion(1U),
         Request());
 
+    // SAFETY: Gatewayが要求を受け付けても読戻しが一致しない場合、
+    // QueuePriority変更済みとして成功を返さない。
     ASSERT_FALSE(outcome.HasValue());
     EXPECT_EQ(ErrorCode::InvalidResponse, outcome.ErrorValue().code);
     EXPECT_EQ(1, commandGateway.priorityCallCount);
@@ -287,6 +295,8 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, StaleSnapshotFailsBeforeCallingApi
         SnapshotVersion(1U),
         Request());
 
+    // SAFETY: Staleな順位と指示書を外部判定へ送らず、
+    // 変更要求も発行しない。
     ASSERT_FALSE(outcome.HasValue());
     EXPECT_EQ(ErrorCode::Unavailable, outcome.ErrorValue().code);
     EXPECT_EQ(0, checkGateway.callCount);
