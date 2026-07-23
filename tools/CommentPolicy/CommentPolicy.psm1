@@ -97,7 +97,7 @@ function New-CommentPolicyViolation {
         [int]$LineNumber,
         [string]$Rule,
         [string]$Message,
-        [string]$Text
+        [AllowEmptyString()][string]$Text
     )
 
     return [pscustomobject]@{
@@ -111,7 +111,9 @@ function New-CommentPolicyViolation {
 
 function Get-LineCommentFragment {
     param(
-        [Parameter(Mandatory = $true)][string]$Line,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Line,
         [Parameter(Mandatory = $true)][string]$Extension
     )
 
