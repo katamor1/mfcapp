@@ -65,9 +65,7 @@ jobs:
             /fileLogger /fileLoggerParameters:"LogFile=$diagnosticLog;Verbosity=diagnostic" `
             /p:Configuration="${{ matrix.configuration }}" `
             /p:Platform="${{ matrix.target.solution_platform }}" `
-            /p:VcpkgEnableManifest=true `
-            /p:VcpkgRoot="$env:VCPKG_INSTALLATION_ROOT\" `
-            /p:VcpkgTriplet="${{ matrix.target.triplet }}"
+            /p:VcpkgRoot="$env:VCPKG_INSTALLATION_ROOT\"
           $buildExitCode = $LASTEXITCODE
           if (Test-Path $diagnosticLog) {
             Get-Content $diagnosticLog -Tail 160 | Set-Content $tailLog
