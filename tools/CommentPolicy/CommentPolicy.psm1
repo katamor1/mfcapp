@@ -85,6 +85,192 @@ function Get-CommentPolicyFiles {
         Sort-Object -Unique)
 }
 
+function New-CommentPolicyViolation {
+    param(
+        [string]$Path,
+        [int]$LineNumber,
+        [string]$Rule,
+        [string]$Message,
+        [string]$Text
+    )
+
+    return [pscustomobject]@{
+        Path = $Path
+        LineNumber = $LineNumber
+        Rule = $Rule
+        Message = $Message
+        Text = $Text.Trim()
+    }
+}
+
+function Get-LineCommentFragment {
+    param(
+        [Parameter(Mandatory = $true)][string]$Line,
+        [Parameter(Mandatory = $true)][string]$Extension
+    )
+
+    $trimmed = $Line.TrimStart()
+    if ($trimmed.StartsWith("/*") -or
+        $trimmed.StartsWith("*") -or
+        $trimmed.StartsWith("<#") -or
+        $trimmed.StartsWith("#>")) {
+        return $trimmed
+    }
+
+    $inSingleQuoted = $false
+    $inDoubleQuoted = $false
+    $escaped = $false
+
+    for ($index = 0; $index -lt $Line.Length; ++$index) {
+        $character = $Line[$index]
+
+        if ($Extension -in @(".h", ".hpp", ".cpp", ".cxx")) {
+            if ($escaped) {
+                $escaped = $false
+                continue
+            }
+            if (($inSingleQuoted -or $inDoubleQuoted) -and $character -eq '\') {
+                $escaped = $true
+                continue
+            }
+            if (-not $inDoubleQuoted -and $character -eq "'") {
+                $inSingleQuoted = -not $inSingleQuoted
+                continue
+            }
+            if (-not $inSingleQuoted -and $character -eq '"') {
+                $inDoubleQuoted = -not $inDoubleQuoted
+                continue
+            }
+            if (-not $inSingleQuoted -and -not $inDoubleQuoted -and
+                $character -eq '/' -and
+                $index + 1 -lt $Line.Length -and
+                $Line[$index + 1] -eq '/') {
+                return $Line.Substring($index)
+            }
+            continue
+        }
+
+        if ($Extension -in @(".ps1", ".psm1")) {
+            if ($escaped) {
+                $escaped = $false
+                continue
+            }
+            if ($inDoubleQuoted -and $character -eq '`') {
+                $escaped = $true
+                continue
+            }
+            if (-not $inDoubleQuoted -and $character -eq "'") {
+                if ($inSingleQuoted -and
+                    $index + 1 -lt $Line.Length -and
+                    $Line[$index + 1] -eq "'") {
+                    ++$index
+                    continue
+                }
+                $inSingleQuoted = -not $inSingleQuoted
+                continue
+            }
+            if (-not $inSingleQuoted -and $character -eq '"') {
+                $inDoubleQuoted = -not $inDoubleQuoted
+                continue
+            }
+            if (-not $inSingleQuoted -and -not $inDoubleQuoted -and
+                $character -eq '#') {
+                return $Line.Substring($index)
+            }
+        }
+    }
+
+    return $null
+}
+
+function Get-ForwardCommentContext {
+    param(
+        [string[]]$Lines,
+        [int]$Index,
+        [string]$Extension,
+        [int]$MaximumLineCount = 8
+    )
+
+    $context = New-Object System.Collections.Generic.List[string]
+    $limit = [Math]::Min($Lines.Count, $Index + $MaximumLineCount)
+    for ($current = $Index; $current -lt $limit; ++$current) {
+        $fragment = Get-LineCommentFragment $Lines[$current] $Extension
+        if ($null -eq $fragment) {
+            break
+        }
+        $context.Add($fragment)
+    }
+    return ($context -join "`n")
+}
+
+function Test-TaskMarkerRules {
+    param([string]$Path, [string[]]$Lines)
+
+    $violations = New-Object System.Collections.Generic.List[object]
+    $extension = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
+
+    for ($index = 0; $index -lt $Lines.Count; ++$index) {
+        $line = $Lines[$index]
+        $comment = Get-LineCommentFragment $line $extension
+        if ($null -eq $comment) {
+            continue
+        }
+
+        if ($comment -match "\bTODO\b") {
+            $context = Get-ForwardCommentContext $Lines $index $extension 6
+            if ($comment -notmatch "\bTODO\(#\d+\):") {
+                $violations.Add((New-CommentPolicyViolation $Path ($index + 1) `
+                    "TODO_ISSUE" "TODOにはIssue番号が必要です。" $line))
+            }
+            if ($context -notmatch "完了条件\s*:") {
+                $violations.Add((New-CommentPolicyViolation $Path ($index + 1) `
+                    "TODO_COMPLETION" "TODOには検証可能な完了条件が必要です。" $line))
+            }
+        }
+
+        if ($comment -match "\bFIXME\b") {
+            $context = Get-ForwardCommentContext $Lines $index $extension 8
+            if ($comment -notmatch "\bFIXME\(#\d+\):") {
+                $violations.Add((New-CommentPolicyViolation $Path ($index + 1) `
+                    "FIXME_ISSUE" "FIXMEにはIssue番号が必要です。" $line))
+            }
+            foreach ($requirement in @(
+                @{ Rule = "FIXME_IMPACT"; Pattern = "影響\s*:"; Message = "FIXMEには影響範囲が必要です。" },
+                @{ Rule = "FIXME_SAFETY"; Pattern = "SAFETY\s*:"; Message = "FIXMEには安全側の暫定動作が必要です。" },
+                @{ Rule = "FIXME_COMPLETION"; Pattern = "完了条件\s*:"; Message = "FIXMEには完了条件が必要です。" }
+            )) {
+                if ($context -notmatch $requirement.Pattern) {
+                    $violations.Add((New-CommentPolicyViolation $Path ($index + 1) `
+                        $requirement.Rule $requirement.Message $line))
+                }
+            }
+        }
+    }
+
+    return $violations.ToArray()
+}
+
+function Test-CommentPolicyFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    $normalized = ConvertTo-RepositoryPath $Path
+    if (-not (Test-CommentPolicyPath $normalized)) {
+        return @()
+    }
+
+    $fullPath = Join-Path $RepoRoot $normalized
+    if (-not (Test-Path $fullPath -PathType Leaf)) {
+        throw "Comment policy target file does not exist: $normalized"
+    }
+
+    $lines = @(Get-Content $fullPath)
+    return @(Test-TaskMarkerRules $normalized $lines)
+}
+
 Export-ModuleMember -Function `
     Test-CommentPolicyPath, `
-    Get-CommentPolicyFiles
+    Get-CommentPolicyFiles, `
+    Test-CommentPolicyFile
