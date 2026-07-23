@@ -1,7 +1,7 @@
 #pragma once
 
-#include <OleAuto.h>
 #include <Windows.h>
+#include <OleAuto.h>
 
 namespace ShelfManager::Infrastructure::Com {
 
