@@ -6,6 +6,12 @@ $script:ExcludedDirectories = @(
     ".git", "vcpkg_installed", "out", "obj", "packages",
     "third_party", "external", "generated"
 )
+$script:KnownTagTypos = @{
+    "THRAED:" = "THREAD:"
+    "SAFTY:"  = "SAFETY:"
+    "SOUCRE:" = "SOURCE:"
+    "SROUCE:" = "SOURCE:"
+}
 
 function ConvertTo-RepositoryPath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -14,7 +20,7 @@ function ConvertTo-RepositoryPath {
     while ($normalized.StartsWith("./", [System.StringComparison]::Ordinal)) {
         $normalized = $normalized.Substring(2)
     }
-    return $normalized.TrimStart("/")
+    return $normalized.TrimStart([char[]]@('/'))
 }
 
 function Test-CommentPolicyPath {
@@ -183,6 +189,12 @@ function Get-LineCommentFragment {
     return $null
 }
 
+function Get-CommentBody {
+    param([Parameter(Mandatory = $true)][string]$Comment)
+
+    return ($Comment -replace '^\s*(?://+|/\*+|\*+|#|<#|#>)\s*', '')
+}
+
 function Get-ForwardCommentContext {
     param(
         [string[]]$Lines,
@@ -199,6 +211,26 @@ function Get-ForwardCommentContext {
             break
         }
         $context.Add($fragment)
+    }
+    return ($context -join "`n")
+}
+
+function Get-BackwardCommentContext {
+    param(
+        [string[]]$Lines,
+        [int]$Index,
+        [string]$Extension,
+        [int]$MaximumLineCount = 8
+    )
+
+    $context = New-Object System.Collections.Generic.List[string]
+    $start = [Math]::Max(0, $Index - $MaximumLineCount)
+    for ($current = $Index; $current -ge $start; --$current) {
+        $fragment = Get-LineCommentFragment $Lines[$current] $Extension
+        if ($null -eq $fragment) {
+            break
+        }
+        $context.Insert(0, $fragment)
     }
     return ($context -join "`n")
 }
@@ -250,6 +282,64 @@ function Test-TaskMarkerRules {
     return $violations.ToArray()
 }
 
+function Test-DisabledCodeRules {
+    param([string]$Path, [string[]]$Lines)
+
+    $violations = New-Object System.Collections.Generic.List[object]
+    $extension = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
+    $cppPattern = '^(?:#include\b|return\b.*;|(?:auto|const|constexpr|static|std::[\w:<>]+|[\w:<>]+)\s+\w+\s*(?:=.*)?;|[\w:]+\s*\(.*\)\s*;|(?:if|for|while|switch)\s*\(.*\)\s*\{?)\s*$'
+    $powershellPattern = '^(?:\$[\w:]+\s*=|return\b|throw\b|[A-Za-z]+-[A-Za-z][\w-]*\b)'
+
+    for ($index = 0; $index -lt $Lines.Count; ++$index) {
+        $line = $Lines[$index]
+        if ($line -match '^\s*#\s*if\s+0(?:\s|$)') {
+            $violations.Add((New-CommentPolicyViolation $Path ($index + 1) `
+                "DISABLED_IF_ZERO" "#if 0による無効化コードは禁止です。" $line))
+        }
+
+        $comment = Get-LineCommentFragment $line $extension
+        if ($null -eq $comment) {
+            continue
+        }
+        $body = Get-CommentBody $comment
+
+        $isCommentedCode =
+            (($extension -in @(".h", ".hpp", ".cpp", ".cxx")) -and
+                $body -match $cppPattern) -or
+            (($extension -in @(".ps1", ".psm1")) -and
+                $body -match $powershellPattern)
+        if ($isCommentedCode) {
+            $context = Get-BackwardCommentContext $Lines $index $extension 8
+            $temporaryException =
+                $context -match "一時無効化\(#\d+\)" -and
+                $context -match "現在の実行経路\s*:" -and
+                $context -match "削除条件\s*:"
+            if (-not $temporaryException) {
+                $violations.Add((New-CommentPolicyViolation $Path ($index + 1) `
+                    "COMMENTED_CODE" `
+                    "コメントアウトコードは削除するか、短期例外情報を付けてください。" `
+                    $line))
+            }
+        }
+
+        foreach ($typo in $script:KnownTagTypos.Keys) {
+            if ($body -cmatch ('^' + [regex]::Escape($typo))) {
+                $violations.Add((New-CommentPolicyViolation $Path ($index + 1) `
+                    "COMMENT_TAG_TYPO" `
+                    "コメントタグ[$typo]は[$($script:KnownTagTypos[$typo])]の誤記です。" `
+                    $line))
+            }
+        }
+
+        if ($body -cmatch '^(why|thread|safety|source)\s*:') {
+            $violations.Add((New-CommentPolicyViolation $Path ($index + 1) `
+                "COMMENT_TAG_CASE" "標準コメントタグは大文字で記述してください。" $line))
+        }
+    }
+
+    return $violations.ToArray()
+}
+
 function Test-CommentPolicyFile {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -267,7 +357,12 @@ function Test-CommentPolicyFile {
     }
 
     $lines = @(Get-Content $fullPath)
-    return @(Test-TaskMarkerRules $normalized $lines)
+    $violations = New-Object System.Collections.Generic.List[object]
+    @(Test-TaskMarkerRules $normalized $lines) |
+        ForEach-Object { $violations.Add($_) }
+    @(Test-DisabledCodeRules $normalized $lines) |
+        ForEach-Object { $violations.Add($_) }
+    return $violations.ToArray()
 }
 
 Export-ModuleMember -Function `
