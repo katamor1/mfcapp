@@ -12,15 +12,17 @@ ShelfManager::Domain::Result<void> MachineSnapshotStore::Publish(
             {ErrorCode::InvalidArgument, "Snapshot must not be null."});
     }
 
-    auto current = latest_.load(std::memory_order_acquire);
+    auto current = std::atomic_load_explicit(
+        &latest_, std::memory_order_acquire);
     for (;;) {
         if (current && snapshot->version <= current->version) {
             return Result<void>::Failure(
                 {ErrorCode::Conflict,
                  "Snapshot version must increase monotonically."});
         }
-        if (latest_.compare_exchange_weak(
-                current,
+        if (std::atomic_compare_exchange_weak_explicit(
+                &latest_,
+                &current,
                 snapshot,
                 std::memory_order_release,
                 std::memory_order_acquire)) {
@@ -31,7 +33,8 @@ ShelfManager::Domain::Result<void> MachineSnapshotStore::Publish(
 
 std::shared_ptr<const ShelfManager::Domain::MachineSnapshot>
 MachineSnapshotStore::Current() const noexcept {
-    return latest_.load(std::memory_order_acquire);
+    return std::atomic_load_explicit(
+        &latest_, std::memory_order_acquire);
 }
 
 }  // namespace ShelfManager::Application

@@ -14,7 +14,17 @@ struct UserMessage final {
     UserMessageSeverity severity;
     std::wstring text;
 
-    friend bool operator==(const UserMessage&, const UserMessage&) = default;
+    friend bool operator==(
+        const UserMessage& left,
+        const UserMessage& right) {
+        return left.severity == right.severity && left.text == right.text;
+    }
+
+    friend bool operator!=(
+        const UserMessage& left,
+        const UserMessage& right) {
+        return !(left == right);
+    }
 };
 
 }  // namespace ShelfManager::Presentation

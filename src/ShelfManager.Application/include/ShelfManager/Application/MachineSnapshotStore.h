@@ -19,8 +19,9 @@ public:
     Current() const noexcept;
 
 private:
-    std::atomic<std::shared_ptr<const ShelfManager::Domain::MachineSnapshot>>
-        latest_{nullptr};
+    // C++17 provides atomic shared_ptr operations as free functions rather
+    // than as std::atomic<std::shared_ptr<T>>.
+    std::shared_ptr<const ShelfManager::Domain::MachineSnapshot> latest_;
 };
 
 }  // namespace ShelfManager::Application

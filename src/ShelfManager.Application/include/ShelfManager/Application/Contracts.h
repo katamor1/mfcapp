@@ -1,6 +1,5 @@
 #pragma once
 
-#include <compare>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -33,7 +32,18 @@ struct MonitoringRequest final {
     MonitoringClass monitoringClass;
     std::optional<WorkpieceId> selectedWorkpiece;
 
-    friend bool operator==(const MonitoringRequest&, const MonitoringRequest&) = default;
+    friend bool operator==(
+        const MonitoringRequest& left,
+        const MonitoringRequest& right) {
+        return left.monitoringClass == right.monitoringClass &&
+               left.selectedWorkpiece == right.selectedWorkpiece;
+    }
+
+    friend bool operator!=(
+        const MonitoringRequest& left,
+        const MonitoringRequest& right) {
+        return !(left == right);
+    }
 };
 
 struct MachineSnapshotFragment final {
@@ -45,16 +55,37 @@ struct MachineSnapshotFragment final {
     DataFreshness freshness;
 
     friend bool operator==(
-        const MachineSnapshotFragment&,
-        const MachineSnapshotFragment&) = default;
+        const MachineSnapshotFragment& left,
+        const MachineSnapshotFragment& right) {
+        return left.health == right.health &&
+               left.rackLayout == right.rackLayout &&
+               left.rackState == right.rackState &&
+               left.workpieces == right.workpieces &&
+               left.destinations == right.destinations &&
+               left.freshness == right.freshness;
+    }
+
+    friend bool operator!=(
+        const MachineSnapshotFragment& left,
+        const MachineSnapshotFragment& right) {
+        return !(left == right);
+    }
 };
 
 struct PriorityChangeReceipt final {
     bool accepted;
 
-    friend bool operator==(
-        const PriorityChangeReceipt&,
-        const PriorityChangeReceipt&) = default;
+    friend constexpr bool operator==(
+        const PriorityChangeReceipt& left,
+        const PriorityChangeReceipt& right) noexcept {
+        return left.accepted == right.accepted;
+    }
+
+    friend constexpr bool operator!=(
+        const PriorityChangeReceipt& left,
+        const PriorityChangeReceipt& right) noexcept {
+        return !(left == right);
+    }
 };
 
 struct TransportRequest final {
@@ -62,13 +93,35 @@ struct TransportRequest final {
     WorkpieceId workpieceId;
     TransportDestination destination;
 
-    friend bool operator==(const TransportRequest&, const TransportRequest&) = default;
+    friend bool operator==(
+        const TransportRequest& left,
+        const TransportRequest& right) {
+        return left.baseVersion == right.baseVersion &&
+               left.workpieceId == right.workpieceId &&
+               left.destination == right.destination;
+    }
+
+    friend bool operator!=(
+        const TransportRequest& left,
+        const TransportRequest& right) {
+        return !(left == right);
+    }
 };
 
 struct TransportReceipt final {
     bool accepted;
 
-    friend bool operator==(const TransportReceipt&, const TransportReceipt&) = default;
+    friend constexpr bool operator==(
+        const TransportReceipt& left,
+        const TransportReceipt& right) noexcept {
+        return left.accepted == right.accepted;
+    }
+
+    friend constexpr bool operator!=(
+        const TransportReceipt& left,
+        const TransportReceipt& right) noexcept {
+        return !(left == right);
+    }
 };
 
 enum class OperatorAction {
@@ -115,7 +168,41 @@ public:
         return value_;
     }
 
-    friend constexpr auto operator<=>(const OperationId&, const OperationId&) = default;
+    friend constexpr bool operator==(
+        const OperationId& left,
+        const OperationId& right) noexcept {
+        return left.value_ == right.value_;
+    }
+
+    friend constexpr bool operator!=(
+        const OperationId& left,
+        const OperationId& right) noexcept {
+        return !(left == right);
+    }
+
+    friend constexpr bool operator<(
+        const OperationId& left,
+        const OperationId& right) noexcept {
+        return left.value_ < right.value_;
+    }
+
+    friend constexpr bool operator<=(
+        const OperationId& left,
+        const OperationId& right) noexcept {
+        return !(right < left);
+    }
+
+    friend constexpr bool operator>(
+        const OperationId& left,
+        const OperationId& right) noexcept {
+        return right < left;
+    }
+
+    friend constexpr bool operator>=(
+        const OperationId& left,
+        const OperationId& right) noexcept {
+        return !(left < right);
+    }
 
 private:
     std::uint64_t value_;
@@ -141,7 +228,20 @@ struct OperationRecord final {
     std::optional<TimePoint> completedAt;
     std::optional<Error> error;
 
-    friend bool operator==(const OperationRecord&, const OperationRecord&) = default;
+    friend bool operator==(
+        const OperationRecord& left,
+        const OperationRecord& right) {
+        return left.id == right.id && left.kind == right.kind &&
+               left.workpieceId == right.workpieceId &&
+               left.startedAt == right.startedAt && left.phase == right.phase &&
+               left.completedAt == right.completedAt && left.error == right.error;
+    }
+
+    friend bool operator!=(
+        const OperationRecord& left,
+        const OperationRecord& right) {
+        return !(left == right);
+    }
 };
 
 }  // namespace ShelfManager::Application

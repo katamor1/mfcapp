@@ -15,8 +15,16 @@ public:
     [[nodiscard]] const std::string& Value() const noexcept;
 
     friend bool operator==(
-        const MachiningInstructionName&,
-        const MachiningInstructionName&) = default;
+        const MachiningInstructionName& left,
+        const MachiningInstructionName& right) noexcept {
+        return left.value_ == right.value_;
+    }
+
+    friend bool operator!=(
+        const MachiningInstructionName& left,
+        const MachiningInstructionName& right) noexcept {
+        return !(left == right);
+    }
 
 private:
     std::string value_;
@@ -27,8 +35,17 @@ struct MachiningInstructionRef final {
     InstructionOrder executionOrder;
 
     friend bool operator==(
-        const MachiningInstructionRef&,
-        const MachiningInstructionRef&) = default;
+        const MachiningInstructionRef& left,
+        const MachiningInstructionRef& right) noexcept {
+        return left.name == right.name &&
+               left.executionOrder == right.executionOrder;
+    }
+
+    friend bool operator!=(
+        const MachiningInstructionRef& left,
+        const MachiningInstructionRef& right) noexcept {
+        return !(left == right);
+    }
 };
 
 class MachiningInstructionSequence final {
@@ -40,8 +57,16 @@ public:
         const noexcept;
 
     friend bool operator==(
-        const MachiningInstructionSequence&,
-        const MachiningInstructionSequence&) = default;
+        const MachiningInstructionSequence& left,
+        const MachiningInstructionSequence& right) {
+        return left.instructions_ == right.instructions_;
+    }
+
+    friend bool operator!=(
+        const MachiningInstructionSequence& left,
+        const MachiningInstructionSequence& right) {
+        return !(left == right);
+    }
 
 private:
     explicit MachiningInstructionSequence(

@@ -23,8 +23,9 @@ void MonitoringWorker::Start() {
         return;
     }
 
-    worker_ = std::jthread([this](const std::stop_token stopToken) {
-        while (!stopToken.stop_requested()) {
+    stopRequested_.store(false, std::memory_order_release);
+    worker_ = std::thread([this]() {
+        while (!stopRequested_.load(std::memory_order_acquire)) {
             static_cast<void>(coordinator_.Tick());
             std::this_thread::sleep_for(kSchedulerGranularity);
         }
@@ -32,13 +33,13 @@ void MonitoringWorker::Start() {
 }
 
 void MonitoringWorker::Stop() {
-    std::jthread worker;
+    std::thread worker;
     {
         std::scoped_lock lock(mutex_);
         if (!worker_.joinable()) {
             return;
         }
-        worker_.request_stop();
+        stopRequested_.store(true, std::memory_order_release);
         worker = std::move(worker_);
     }
     worker.join();

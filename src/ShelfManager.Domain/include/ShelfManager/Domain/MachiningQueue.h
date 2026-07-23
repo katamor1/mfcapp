@@ -18,7 +18,18 @@ struct PriorityAssignment final {
     QueuePriority expected;
     QueuePriority desired;
 
-    friend bool operator==(const PriorityAssignment&, const PriorityAssignment&) = default;
+    friend bool operator==(
+        const PriorityAssignment& left,
+        const PriorityAssignment& right) noexcept {
+        return left.workpieceId == right.workpieceId &&
+               left.expected == right.expected && left.desired == right.desired;
+    }
+
+    friend bool operator!=(
+        const PriorityAssignment& left,
+        const PriorityAssignment& right) noexcept {
+        return !(left == right);
+    }
 };
 
 struct PriorityChangePlan final {
@@ -26,7 +37,19 @@ struct PriorityChangePlan final {
     bool changed;
     std::vector<PriorityAssignment> assignments;
 
-    friend bool operator==(const PriorityChangePlan&, const PriorityChangePlan&) = default;
+    friend bool operator==(
+        const PriorityChangePlan& left,
+        const PriorityChangePlan& right) {
+        return left.baseVersion == right.baseVersion &&
+               left.changed == right.changed &&
+               left.assignments == right.assignments;
+    }
+
+    friend bool operator!=(
+        const PriorityChangePlan& left,
+        const PriorityChangePlan& right) {
+        return !(left == right);
+    }
 };
 
 class MachiningQueue final {

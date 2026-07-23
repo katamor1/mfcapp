@@ -1,12 +1,14 @@
 #include "ShelfManager/Infrastructure/Fake/CsvScenarioLoader.h"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
@@ -29,7 +31,30 @@ struct DataAddress final {
     std::uint64_t subId1;
     std::uint64_t subId2;
 
-    friend bool operator==(const DataAddress&, const DataAddress&) = default;
+    friend bool operator==(
+        const DataAddress& left,
+        const DataAddress& right) noexcept {
+        return left.dataId == right.dataId && left.subId1 == right.subId1 &&
+               left.subId2 == right.subId2;
+    }
+
+    friend bool operator!=(
+        const DataAddress& left,
+        const DataAddress& right) noexcept {
+        return !(left == right);
+    }
+};
+
+struct DataAddressLess final {
+    bool operator()(const DataAddress& left, const DataAddress& right) const noexcept {
+        if (left.dataId != right.dataId) {
+            return left.dataId < right.dataId;
+        }
+        if (left.subId1 != right.subId1) {
+            return left.subId1 < right.subId1;
+        }
+        return left.subId2 < right.subId2;
+    }
 };
 
 struct CsvRow final {
@@ -38,6 +63,8 @@ struct CsvRow final {
     std::string value;
     std::size_t lineNumber;
 };
+
+using ResponseMap = std::map<DataAddress, std::string, DataAddressLess>;
 
 template <class T>
 Result<T> Failure(const ErrorCode code, std::string message) {
@@ -152,8 +179,8 @@ Result<T> ParseUnsigned(
     T value{};
     const auto* begin = trimmed.data();
     const auto* end = begin + trimmed.size();
-    const auto [position, error] = std::from_chars(begin, end, value);
-    if (error != std::errc{} || position != end) {
+    const auto parsed = std::from_chars(begin, end, value);
+    if (parsed.ec != std::errc{} || parsed.ptr != end) {
         return Failure<T>(
             ErrorCode::InvalidArgument,
             "CSV line " + std::to_string(lineNumber) + " has an invalid " +
@@ -235,6 +262,7 @@ Result<std::vector<CsvRow>> ReadRows(std::istream& input) {
         if (!subId2Value.HasValue()) {
             return Result<std::vector<CsvRow>>::Failure(subId2Value.ErrorValue());
         }
+
         if (dataIdValue.Value() <
                 ToDataId(ProvisionalDataId::MachineConnectionState) ||
             dataIdValue.Value() >
@@ -256,9 +284,7 @@ Result<std::vector<CsvRow>> ReadRows(std::istream& input) {
         rows.push_back(CsvRow{
             std::chrono::milliseconds(
                 static_cast<std::chrono::milliseconds::rep>(offsetValue.Value())),
-            DataAddress{dataIdValue.Value(),
-                        subId1Value.Value(),
-                        subId2Value.Value()},
+            DataAddress{dataIdValue.Value(), subId1Value.Value(), subId2Value.Value()},
             fields[4],
             lineNumber});
     }
@@ -274,20 +300,15 @@ Result<std::vector<CsvRow>> ReadRows(std::istream& input) {
             "CSV input does not contain any machine responses.");
     }
 
+    const DataAddressLess addressLess;
     std::sort(
         rows.begin(),
         rows.end(),
-        [](const CsvRow& left, const CsvRow& right) {
+        [&addressLess](const CsvRow& left, const CsvRow& right) {
             if (left.offset != right.offset) {
                 return left.offset < right.offset;
             }
-            if (left.address.dataId != right.address.dataId) {
-                return left.address.dataId < right.address.dataId;
-            }
-            if (left.address.subId1 != right.address.subId1) {
-                return left.address.subId1 < right.address.subId1;
-            }
-            return left.address.subId2 < right.address.subId2;
+            return addressLess(left.address, right.address);
         });
 
     for (std::size_t index = 1U; index < rows.size(); ++index) {
@@ -305,41 +326,28 @@ Result<std::vector<CsvRow>> ReadRows(std::istream& input) {
 }
 
 Result<std::string> Lookup(
-    const std::vector<CsvRow>& rows,
-    const std::chrono::milliseconds offset,
+    const ResponseMap& responses,
     const ProvisionalDataId dataId,
     const std::uint64_t subId1 = 0U,
     const std::uint64_t subId2 = 0U) {
     const DataAddress address{ToDataId(dataId), subId1, subId2};
-    const CsvRow* matchingRow = nullptr;
-    for (const auto& row : rows) {
-        if (row.offset > offset) {
-            break;
-        }
-        if (row.address == address) {
-            matchingRow = &row;
-        }
-    }
-
-    if (matchingRow == nullptr) {
+    const auto match = responses.find(address);
+    if (match == responses.end()) {
         return Failure<std::string>(
             ErrorCode::InvalidResponse,
-            "Missing CSV response for dataId=" +
-                std::to_string(address.dataId) + ", subId1=" +
-                std::to_string(address.subId1) + ", subId2=" +
-                std::to_string(address.subId2) + " at " +
-                std::to_string(offset.count()) + " ms.");
+            "Missing CSV response for dataId=" + std::to_string(address.dataId) +
+                ", subId1=" + std::to_string(address.subId1) +
+                ", subId2=" + std::to_string(address.subId2) + ".");
     }
-    return Result<std::string>::Success(matchingRow->value);
+    return Result<std::string>::Success(match->second);
 }
 
 Result<std::uint64_t> ReadUnsignedValue(
-    const std::vector<CsvRow>& rows,
-    const std::chrono::milliseconds offset,
+    const ResponseMap& responses,
     const ProvisionalDataId dataId,
     const std::uint64_t subId1 = 0U,
     const std::uint64_t subId2 = 0U) {
-    const auto value = Lookup(rows, offset, dataId, subId1, subId2);
+    const auto value = Lookup(responses, dataId, subId1, subId2);
     if (!value.HasValue()) {
         return Result<std::uint64_t>::Failure(value.ErrorValue());
     }
@@ -354,10 +362,9 @@ Result<std::uint64_t> ReadUnsignedValue(
 }
 
 Result<bool> ReadBoolean(
-    const std::vector<CsvRow>& rows,
-    const std::chrono::milliseconds offset,
+    const ResponseMap& responses,
     const ProvisionalDataId dataId) {
-    const auto value = Lookup(rows, offset, dataId);
+    const auto value = Lookup(responses, dataId);
     if (!value.HasValue()) {
         return Result<bool>::Failure(value.ErrorValue());
     }
@@ -373,11 +380,8 @@ Result<bool> ReadBoolean(
         "Boolean CSV response must be 0, 1, false, or true.");
 }
 
-Result<MachineConnectionState> ReadConnectionState(
-    const std::vector<CsvRow>& rows,
-    const std::chrono::milliseconds offset) {
-    const auto value = Lookup(
-        rows, offset, ProvisionalDataId::MachineConnectionState);
+Result<MachineConnectionState> ReadConnectionState(const ResponseMap& responses) {
+    const auto value = Lookup(responses, ProvisionalDataId::MachineConnectionState);
     if (!value.HasValue()) {
         return Result<MachineConnectionState>::Failure(value.ErrorValue());
     }
@@ -403,10 +407,8 @@ Result<MachineConnectionState> ReadConnectionState(
         "Unknown machine connection state in CSV response.");
 }
 
-Result<MachineMode> ReadMachineMode(
-    const std::vector<CsvRow>& rows,
-    const std::chrono::milliseconds offset) {
-    const auto value = Lookup(rows, offset, ProvisionalDataId::MachineMode);
+Result<MachineMode> ReadMachineMode(const ResponseMap& responses) {
+    const auto value = Lookup(responses, ProvisionalDataId::MachineMode);
     if (!value.HasValue()) {
         return Result<MachineMode>::Failure(value.ErrorValue());
     }
@@ -426,11 +428,10 @@ Result<MachineMode> ReadMachineMode(
 }
 
 Result<WorkpieceStatus> ReadWorkpieceStatus(
-    const std::vector<CsvRow>& rows,
-    const std::chrono::milliseconds offset,
+    const ResponseMap& responses,
     const std::uint64_t workpieceId) {
     const auto value = Lookup(
-        rows, offset, ProvisionalDataId::WorkpieceStatus, workpieceId);
+        responses, ProvisionalDataId::WorkpieceStatus, workpieceId);
     if (!value.HasValue()) {
         return Result<WorkpieceStatus>::Failure(value.ErrorValue());
     }
@@ -461,12 +462,10 @@ Result<WorkpieceStatus> ReadWorkpieceStatus(
 }
 
 Result<DestinationAvailability> ReadDestinationAvailability(
-    const std::vector<CsvRow>& rows,
-    const std::chrono::milliseconds offset,
+    const ResponseMap& responses,
     const std::uint64_t destinationIndex) {
     const auto value = Lookup(
-        rows,
-        offset,
+        responses,
         ProvisionalDataId::DestinationAvailability,
         destinationIndex);
     if (!value.HasValue()) {
@@ -495,12 +494,10 @@ Result<DestinationAvailability> ReadDestinationAvailability(
 }
 
 Result<WorkpieceLocation> ReadWorkpieceLocation(
-    const std::vector<CsvRow>& rows,
-    const std::chrono::milliseconds offset,
+    const ResponseMap& responses,
     const std::uint64_t workpieceId) {
     const auto typeValue = Lookup(
-        rows,
-        offset,
+        responses,
         ProvisionalDataId::WorkpieceLocationType,
         workpieceId);
     if (!typeValue.HasValue()) {
@@ -515,8 +512,7 @@ Result<WorkpieceLocation> ReadWorkpieceLocation(
     }
 
     const auto primary = ReadUnsignedValue(
-        rows,
-        offset,
+        responses,
         ProvisionalDataId::WorkpieceLocationPrimary,
         workpieceId);
     if (!primary.HasValue()) {
@@ -533,8 +529,7 @@ Result<WorkpieceLocation> ReadWorkpieceLocation(
     }
     if (normalized == "rack") {
         const auto secondary = ReadUnsignedValue(
-            rows,
-            offset,
+            responses,
             ProvisionalDataId::WorkpieceLocationSecondary,
             workpieceId);
         if (!secondary.HasValue()) {
@@ -556,22 +551,15 @@ Result<WorkpieceLocation> ReadWorkpieceLocation(
 }
 
 Result<TransportDestination> ReadDestination(
-    const std::vector<CsvRow>& rows,
-    const std::chrono::milliseconds offset,
+    const ResponseMap& responses,
     const std::uint64_t destinationIndex) {
     const auto typeValue = Lookup(
-        rows,
-        offset,
-        ProvisionalDataId::DestinationType,
-        destinationIndex);
+        responses, ProvisionalDataId::DestinationType, destinationIndex);
     if (!typeValue.HasValue()) {
         return Result<TransportDestination>::Failure(typeValue.ErrorValue());
     }
     const auto primary = ReadUnsignedValue(
-        rows,
-        offset,
-        ProvisionalDataId::DestinationPrimary,
-        destinationIndex);
+        responses, ProvisionalDataId::DestinationPrimary, destinationIndex);
     if (!primary.HasValue()) {
         return Result<TransportDestination>::Failure(primary.ErrorValue());
     }
@@ -587,8 +575,7 @@ Result<TransportDestination> ReadDestination(
     }
     if (normalized == "rack") {
         const auto secondary = ReadUnsignedValue(
-            rows,
-            offset,
+            responses,
             ProvisionalDataId::DestinationSecondary,
             destinationIndex);
         if (!secondary.HasValue()) {
@@ -610,12 +597,10 @@ Result<TransportDestination> ReadDestination(
 }
 
 Result<std::optional<MachiningInstructionName>> ReadFirstInstruction(
-    const std::vector<CsvRow>& rows,
-    const std::chrono::milliseconds offset,
+    const ResponseMap& responses,
     const std::uint64_t workpieceId) {
     const auto count = ReadUnsignedValue(
-        rows,
-        offset,
+        responses,
         ProvisionalDataId::WorkpieceInstructionCount,
         workpieceId);
     if (!count.HasValue()) {
@@ -636,14 +621,12 @@ Result<std::optional<MachiningInstructionName>> ReadFirstInstruction(
     instructions.reserve(static_cast<std::size_t>(count.Value()));
     for (std::uint64_t index = 1U; index <= count.Value(); ++index) {
         const auto name = Lookup(
-            rows,
-            offset,
+            responses,
             ProvisionalDataId::WorkpieceInstructionName,
             workpieceId,
             index);
         const auto orderValue = ReadUnsignedValue(
-            rows,
-            offset,
+            responses,
             ProvisionalDataId::WorkpieceInstructionOrder,
             workpieceId,
             index);
@@ -684,17 +667,17 @@ Result<std::optional<MachiningInstructionName>> ReadFirstInstruction(
 }
 
 Result<MachineSnapshot> BuildSnapshot(
-    const std::vector<CsvRow>& rows,
+    const ResponseMap& responses,
     const std::chrono::milliseconds offset,
     const SnapshotVersion version,
     TimePoint& lastSuccessfulRead) {
-    const auto connection = ReadConnectionState(rows, offset);
-    const auto mode = ReadMachineMode(rows, offset);
+    const auto connection = ReadConnectionState(responses);
+    const auto mode = ReadMachineMode(responses);
     const auto errorActive = ReadBoolean(
-        rows, offset, ProvisionalDataId::MachineErrorActive);
+        responses, ProvisionalDataId::MachineErrorActive);
     const auto warningActive = ReadBoolean(
-        rows, offset, ProvisionalDataId::MachineWarningActive);
-    const auto message = Lookup(rows, offset, ProvisionalDataId::MachineMessage);
+        responses, ProvisionalDataId::MachineWarningActive);
+    const auto message = Lookup(responses, ProvisionalDataId::MachineMessage);
     if (!connection.HasValue()) {
         return Result<MachineSnapshot>::Failure(connection.ErrorValue());
     }
@@ -712,7 +695,7 @@ Result<MachineSnapshot> BuildSnapshot(
     }
 
     const auto levelCount = ReadUnsignedValue(
-        rows, offset, ProvisionalDataId::RackLevelCount);
+        responses, ProvisionalDataId::RackLevelCount);
     if (!levelCount.HasValue()) {
         return Result<MachineSnapshot>::Failure(levelCount.ErrorValue());
     }
@@ -726,8 +709,7 @@ Result<MachineSnapshot> BuildSnapshot(
     positionsPerLevel.reserve(static_cast<std::size_t>(levelCount.Value()));
     for (std::uint64_t level = 1U; level <= levelCount.Value(); ++level) {
         const auto positionCount = ReadUnsignedValue(
-            rows,
-            offset,
+            responses,
             ProvisionalDataId::RackPositionCount,
             level);
         if (!positionCount.HasValue()) {
@@ -750,7 +732,7 @@ Result<MachineSnapshot> BuildSnapshot(
     }
 
     const auto workpieceCount = ReadUnsignedValue(
-        rows, offset, ProvisionalDataId::WorkpieceCount);
+        responses, ProvisionalDataId::WorkpieceCount);
     if (!workpieceCount.HasValue()) {
         return Result<MachineSnapshot>::Failure(workpieceCount.ErrorValue());
     }
@@ -765,25 +747,23 @@ Result<MachineSnapshot> BuildSnapshot(
     workpieces.reserve(static_cast<std::size_t>(workpieceCount.Value()));
     for (std::uint64_t index = 1U; index <= workpieceCount.Value(); ++index) {
         const auto workpieceIdValue = ReadUnsignedValue(
-            rows,
-            offset,
+            responses,
             ProvisionalDataId::WorkpieceIdByIndex,
             index);
         if (!workpieceIdValue.HasValue()) {
             return Result<MachineSnapshot>::Failure(workpieceIdValue.ErrorValue());
         }
-        const auto workpieceId = WorkpieceId(workpieceIdValue.Value());
+        const WorkpieceId workpieceId(workpieceIdValue.Value());
         const auto location = ReadWorkpieceLocation(
-            rows, offset, workpieceId.Value());
+            responses, workpieceId.Value());
         const auto priorityValue = ReadUnsignedValue(
-            rows,
-            offset,
+            responses,
             ProvisionalDataId::WorkpiecePriority,
             workpieceId.Value());
         const auto status = ReadWorkpieceStatus(
-            rows, offset, workpieceId.Value());
+            responses, workpieceId.Value());
         const auto firstInstruction = ReadFirstInstruction(
-            rows, offset, workpieceId.Value());
+            responses, workpieceId.Value());
         if (!location.HasValue()) {
             return Result<MachineSnapshot>::Failure(location.ErrorValue());
         }
@@ -845,7 +825,7 @@ Result<MachineSnapshot> BuildSnapshot(
     }
 
     const auto destinationCount = ReadUnsignedValue(
-        rows, offset, ProvisionalDataId::DestinationCount);
+        responses, ProvisionalDataId::DestinationCount);
     if (!destinationCount.HasValue()) {
         return Result<MachineSnapshot>::Failure(destinationCount.ErrorValue());
     }
@@ -859,8 +839,8 @@ Result<MachineSnapshot> BuildSnapshot(
     std::vector<DestinationState> destinations;
     destinations.reserve(static_cast<std::size_t>(destinationCount.Value()));
     for (std::uint64_t index = 1U; index <= destinationCount.Value(); ++index) {
-        const auto destination = ReadDestination(rows, offset, index);
-        const auto availability = ReadDestinationAvailability(rows, offset, index);
+        const auto destination = ReadDestination(responses, index);
+        const auto availability = ReadDestinationAvailability(responses, index);
         if (!destination.HasValue()) {
             return Result<MachineSnapshot>::Failure(destination.ErrorValue());
         }
@@ -923,27 +903,27 @@ Result<FakeScenario> CsvScenarioLoader::Parse(std::istream& input) {
         return Result<FakeScenario>::Failure(parsedRows.ErrorValue());
     }
     const auto& rows = parsedRows.Value();
-
-    std::vector<std::chrono::milliseconds> offsets;
-    offsets.reserve(rows.size());
-    for (const auto& row : rows) {
-        if (offsets.empty() || offsets.back() != row.offset) {
-            offsets.push_back(row.offset);
-        }
-    }
-    if (offsets.front() != std::chrono::milliseconds::zero()) {
+    if (rows.front().offset != std::chrono::milliseconds::zero()) {
         return Failure<FakeScenario>(
             ErrorCode::InvalidArgument,
             "Mock response CSV must contain a complete frame at 0 ms.");
     }
 
+    ResponseMap responses;
     std::vector<FakeScenarioFrame> frames;
-    frames.reserve(offsets.size());
     TimePoint lastSuccessfulRead(Duration::zero());
     SnapshotVersion version(1U);
-    for (const auto offset : offsets) {
+
+    std::size_t index = 0U;
+    while (index < rows.size()) {
+        const auto offset = rows[index].offset;
+        while (index < rows.size() && rows[index].offset == offset) {
+            responses[rows[index].address] = rows[index].value;
+            ++index;
+        }
+
         const auto snapshot = BuildSnapshot(
-            rows, offset, version, lastSuccessfulRead);
+            responses, offset, version, lastSuccessfulRead);
         if (!snapshot.HasValue()) {
             return Result<FakeScenario>::Failure(snapshot.ErrorValue());
         }

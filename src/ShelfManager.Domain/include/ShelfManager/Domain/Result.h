@@ -25,7 +25,13 @@ struct Error final {
     ErrorCode code;
     std::string message;
 
-    friend bool operator==(const Error&, const Error&) = default;
+    friend bool operator==(const Error& left, const Error& right) {
+        return left.code == right.code && left.message == right.message;
+    }
+
+    friend bool operator!=(const Error& left, const Error& right) {
+        return !(left == right);
+    }
 };
 
 template <class T>

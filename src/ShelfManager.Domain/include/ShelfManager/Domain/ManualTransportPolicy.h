@@ -30,7 +30,17 @@ struct TransportDecision final {
     bool allowed;
     TransportDenialReason reason;
 
-    friend bool operator==(const TransportDecision&, const TransportDecision&) = default;
+    friend bool operator==(
+        const TransportDecision& left,
+        const TransportDecision& right) noexcept {
+        return left.allowed == right.allowed && left.reason == right.reason;
+    }
+
+    friend bool operator!=(
+        const TransportDecision& left,
+        const TransportDecision& right) noexcept {
+        return !(left == right);
+    }
 };
 
 class ManualTransportPolicy final {

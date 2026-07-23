@@ -1,6 +1,5 @@
 #pragma once
 
-#include <compare>
 #include <cstdint>
 
 #include "ShelfManager/Domain/Result.h"
@@ -15,7 +14,41 @@ public:
         return value_;
     }
 
-    friend constexpr auto operator<=>(const WorkpieceId&, const WorkpieceId&) = default;
+    friend constexpr bool operator==(
+        const WorkpieceId& left,
+        const WorkpieceId& right) noexcept {
+        return left.value_ == right.value_;
+    }
+
+    friend constexpr bool operator!=(
+        const WorkpieceId& left,
+        const WorkpieceId& right) noexcept {
+        return !(left == right);
+    }
+
+    friend constexpr bool operator<(
+        const WorkpieceId& left,
+        const WorkpieceId& right) noexcept {
+        return left.value_ < right.value_;
+    }
+
+    friend constexpr bool operator<=(
+        const WorkpieceId& left,
+        const WorkpieceId& right) noexcept {
+        return !(right < left);
+    }
+
+    friend constexpr bool operator>(
+        const WorkpieceId& left,
+        const WorkpieceId& right) noexcept {
+        return right < left;
+    }
+
+    friend constexpr bool operator>=(
+        const WorkpieceId& left,
+        const WorkpieceId& right) noexcept {
+        return !(left < right);
+    }
 
 private:
     std::uint64_t value_;
@@ -35,7 +68,41 @@ public:
         return value_;
     }
 
-    friend constexpr auto operator<=>(const QueuePriority&, const QueuePriority&) = default;
+    friend constexpr bool operator==(
+        const QueuePriority& left,
+        const QueuePriority& right) noexcept {
+        return left.value_ == right.value_;
+    }
+
+    friend constexpr bool operator!=(
+        const QueuePriority& left,
+        const QueuePriority& right) noexcept {
+        return !(left == right);
+    }
+
+    friend constexpr bool operator<(
+        const QueuePriority& left,
+        const QueuePriority& right) noexcept {
+        return left.value_ < right.value_;
+    }
+
+    friend constexpr bool operator<=(
+        const QueuePriority& left,
+        const QueuePriority& right) noexcept {
+        return !(right < left);
+    }
+
+    friend constexpr bool operator>(
+        const QueuePriority& left,
+        const QueuePriority& right) noexcept {
+        return right < left;
+    }
+
+    friend constexpr bool operator>=(
+        const QueuePriority& left,
+        const QueuePriority& right) noexcept {
+        return !(left < right);
+    }
 
 private:
     explicit constexpr QueuePriority(std::uint32_t value) noexcept : value_(value) {}
@@ -57,7 +124,41 @@ public:
         return value_;
     }
 
-    friend constexpr auto operator<=>(const InstructionOrder&, const InstructionOrder&) = default;
+    friend constexpr bool operator==(
+        const InstructionOrder& left,
+        const InstructionOrder& right) noexcept {
+        return left.value_ == right.value_;
+    }
+
+    friend constexpr bool operator!=(
+        const InstructionOrder& left,
+        const InstructionOrder& right) noexcept {
+        return !(left == right);
+    }
+
+    friend constexpr bool operator<(
+        const InstructionOrder& left,
+        const InstructionOrder& right) noexcept {
+        return left.value_ < right.value_;
+    }
+
+    friend constexpr bool operator<=(
+        const InstructionOrder& left,
+        const InstructionOrder& right) noexcept {
+        return !(right < left);
+    }
+
+    friend constexpr bool operator>(
+        const InstructionOrder& left,
+        const InstructionOrder& right) noexcept {
+        return right < left;
+    }
+
+    friend constexpr bool operator>=(
+        const InstructionOrder& left,
+        const InstructionOrder& right) noexcept {
+        return !(left < right);
+    }
 
 private:
     explicit constexpr InstructionOrder(std::uint32_t value) noexcept : value_(value) {}
@@ -77,7 +178,41 @@ public:
         return SnapshotVersion(value_ + 1U);
     }
 
-    friend constexpr auto operator<=>(const SnapshotVersion&, const SnapshotVersion&) = default;
+    friend constexpr bool operator==(
+        const SnapshotVersion& left,
+        const SnapshotVersion& right) noexcept {
+        return left.value_ == right.value_;
+    }
+
+    friend constexpr bool operator!=(
+        const SnapshotVersion& left,
+        const SnapshotVersion& right) noexcept {
+        return !(left == right);
+    }
+
+    friend constexpr bool operator<(
+        const SnapshotVersion& left,
+        const SnapshotVersion& right) noexcept {
+        return left.value_ < right.value_;
+    }
+
+    friend constexpr bool operator<=(
+        const SnapshotVersion& left,
+        const SnapshotVersion& right) noexcept {
+        return !(right < left);
+    }
+
+    friend constexpr bool operator>(
+        const SnapshotVersion& left,
+        const SnapshotVersion& right) noexcept {
+        return right < left;
+    }
+
+    friend constexpr bool operator>=(
+        const SnapshotVersion& left,
+        const SnapshotVersion& right) noexcept {
+        return !(left < right);
+    }
 
 private:
     std::uint64_t value_;

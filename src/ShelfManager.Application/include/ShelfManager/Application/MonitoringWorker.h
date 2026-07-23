@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <thread>
 
@@ -23,7 +24,8 @@ public:
 private:
     MonitoringCoordinator& coordinator_;
     mutable std::mutex mutex_;
-    std::jthread worker_;
+    std::atomic<bool> stopRequested_{false};
+    std::thread worker_;
 };
 
 }  // namespace ShelfManager::Application

@@ -21,7 +21,13 @@ public:
     [[nodiscard]] bool Contains(const RackSlot& slot) const noexcept;
     [[nodiscard]] const std::vector<std::uint32_t>& PositionsPerLevel() const noexcept;
 
-    friend bool operator==(const RackLayout&, const RackLayout&) = default;
+    friend bool operator==(const RackLayout& left, const RackLayout& right) {
+        return left.positionsPerLevel_ == right.positionsPerLevel_;
+    }
+
+    friend bool operator!=(const RackLayout& left, const RackLayout& right) {
+        return !(left == right);
+    }
 
 private:
     explicit RackLayout(std::vector<std::uint32_t> positionsPerLevel);
@@ -33,13 +39,29 @@ struct RackOccupancy final {
     RackSlot slot;
     WorkpieceId workpieceId;
 
-    friend bool operator==(const RackOccupancy&, const RackOccupancy&) = default;
+    friend bool operator==(
+        const RackOccupancy& left,
+        const RackOccupancy& right) noexcept {
+        return left.slot == right.slot && left.workpieceId == right.workpieceId;
+    }
+
+    friend bool operator!=(
+        const RackOccupancy& left,
+        const RackOccupancy& right) noexcept {
+        return !(left == right);
+    }
 };
 
 struct RackState final {
     std::vector<RackOccupancy> occupiedSlots;
 
-    friend bool operator==(const RackState&, const RackState&) = default;
+    friend bool operator==(const RackState& left, const RackState& right) {
+        return left.occupiedSlots == right.occupiedSlots;
+    }
+
+    friend bool operator!=(const RackState& left, const RackState& right) {
+        return !(left == right);
+    }
 };
 
 }  // namespace ShelfManager::Domain

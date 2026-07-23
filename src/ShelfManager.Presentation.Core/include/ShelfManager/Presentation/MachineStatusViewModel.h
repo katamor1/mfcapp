@@ -23,8 +23,23 @@ struct MachineStatusViewModel final {
     bool synchronizing{true};
 
     friend bool operator==(
-        const MachineStatusViewModel&,
-        const MachineStatusViewModel&) = default;
+        const MachineStatusViewModel& left,
+        const MachineStatusViewModel& right) {
+        return left.connectionText == right.connectionText &&
+               left.machineText == right.machineText &&
+               left.freshnessText == right.freshnessText &&
+               left.messageText == right.messageText &&
+               left.connectionLamp == right.connectionLamp &&
+               left.machineLamp == right.machineLamp &&
+               left.controlsEnabled == right.controlsEnabled &&
+               left.synchronizing == right.synchronizing;
+    }
+
+    friend bool operator!=(
+        const MachineStatusViewModel& left,
+        const MachineStatusViewModel& right) {
+        return !(left == right);
+    }
 };
 
 }  // namespace ShelfManager::Presentation

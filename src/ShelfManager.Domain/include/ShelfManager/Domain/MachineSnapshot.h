@@ -21,7 +21,19 @@ struct WorkpieceSummary final {
     WorkpieceStatus status;
     std::optional<MachiningInstructionName> firstInstruction;
 
-    friend bool operator==(const WorkpieceSummary&, const WorkpieceSummary&) = default;
+    friend bool operator==(
+        const WorkpieceSummary& left,
+        const WorkpieceSummary& right) {
+        return left.id == right.id && left.location == right.location &&
+               left.priority == right.priority && left.status == right.status &&
+               left.firstInstruction == right.firstInstruction;
+    }
+
+    friend bool operator!=(
+        const WorkpieceSummary& left,
+        const WorkpieceSummary& right) {
+        return !(left == right);
+    }
 };
 
 struct MachineHealth final {
@@ -31,7 +43,21 @@ struct MachineHealth final {
     bool warningActive;
     std::string message;
 
-    friend bool operator==(const MachineHealth&, const MachineHealth&) = default;
+    friend bool operator==(
+        const MachineHealth& left,
+        const MachineHealth& right) {
+        return left.connectionState == right.connectionState &&
+               left.mode == right.mode &&
+               left.errorActive == right.errorActive &&
+               left.warningActive == right.warningActive &&
+               left.message == right.message;
+    }
+
+    friend bool operator!=(
+        const MachineHealth& left,
+        const MachineHealth& right) {
+        return !(left == right);
+    }
 };
 
 struct DataFreshness final {
@@ -39,7 +65,19 @@ struct DataFreshness final {
     TimePoint lastSuccessfulRead;
     std::optional<ErrorCode> lastError;
 
-    friend bool operator==(const DataFreshness&, const DataFreshness&) = default;
+    friend bool operator==(
+        const DataFreshness& left,
+        const DataFreshness& right) {
+        return left.state == right.state &&
+               left.lastSuccessfulRead == right.lastSuccessfulRead &&
+               left.lastError == right.lastError;
+    }
+
+    friend bool operator!=(
+        const DataFreshness& left,
+        const DataFreshness& right) {
+        return !(left == right);
+    }
 };
 
 struct MachineSnapshot final {
@@ -52,7 +90,24 @@ struct MachineSnapshot final {
     std::vector<DestinationState> destinations;
     DataFreshness freshness;
 
-    friend bool operator==(const MachineSnapshot&, const MachineSnapshot&) = default;
+    friend bool operator==(
+        const MachineSnapshot& left,
+        const MachineSnapshot& right) {
+        return left.version == right.version &&
+               left.capturedAt == right.capturedAt &&
+               left.health == right.health &&
+               left.rackLayout == right.rackLayout &&
+               left.rackState == right.rackState &&
+               left.workpieces == right.workpieces &&
+               left.destinations == right.destinations &&
+               left.freshness == right.freshness;
+    }
+
+    friend bool operator!=(
+        const MachineSnapshot& left,
+        const MachineSnapshot& right) {
+        return !(left == right);
+    }
 };
 
 }  // namespace ShelfManager::Domain
