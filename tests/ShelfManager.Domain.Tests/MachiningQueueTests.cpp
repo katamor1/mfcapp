@@ -32,14 +32,16 @@ TEST(MachiningQueueTests, PlansMiddleWorkpieceMoveUp) {
     ASSERT_TRUE(plan.HasValue());
     ASSERT_TRUE(plan.Value().changed);
     ASSERT_EQ(2U, plan.Value().assignments.size());
-    EXPECT_EQ(PriorityAssignment{WorkpieceId(2U),
-                                 QueuePriority::Create(2U).Value(),
-                                 QueuePriority::Create(1U).Value()},
-              plan.Value().assignments[0]);
-    EXPECT_EQ(PriorityAssignment{WorkpieceId(1U),
-                                 QueuePriority::Create(1U).Value(),
-                                 QueuePriority::Create(2U).Value()},
-              plan.Value().assignments[1]);
+    const PriorityAssignment expectedSelected{
+        WorkpieceId(2U),
+        QueuePriority::Create(2U).Value(),
+        QueuePriority::Create(1U).Value()};
+    const PriorityAssignment expectedAdjacent{
+        WorkpieceId(1U),
+        QueuePriority::Create(1U).Value(),
+        QueuePriority::Create(2U).Value()};
+    EXPECT_EQ(expectedSelected, plan.Value().assignments[0]);
+    EXPECT_EQ(expectedAdjacent, plan.Value().assignments[1]);
 }
 
 TEST(MachiningQueueTests, PlansMiddleWorkpieceMoveDown) {
