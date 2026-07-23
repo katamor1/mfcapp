@@ -42,6 +42,9 @@ void MonitoringWorker::Stop() {
         stopRequested_.store(true, std::memory_order_release);
         worker = std::move(worker_);
     }
+
+    // THREAD: joinはWorker終了まで待機するため、管理mutexを保持したまま実行しない。
+    // thread所有権を局所変数へ移し、内部状態を確定してから停止完了を待つ。
     worker.join();
 }
 
