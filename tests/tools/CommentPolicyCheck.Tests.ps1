@@ -250,3 +250,4 @@ Invoke-TaskMarkerTests
 Invoke-DisabledCodeAndTagTests
 Invoke-CliReportTest
 Write-Host "Comment policy tests passed."
+exit 0
