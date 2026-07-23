@@ -3,6 +3,7 @@
   <PropertyGroup>
     <ShelfManagerConfigurationType>StaticLibrary</ShelfManagerConfigurationType>
     <ShelfManagerIncludeDirectories>$(MSBuildThisFileDirectory)include;$(MSBuildThisFileDirectory)..\ShelfManager.Application\include;$(MSBuildThisFileDirectory)..\ShelfManager.Domain\include</ShelfManagerIncludeDirectories>
+    <VcpkgEnableManifest>true</VcpkgEnableManifest>
   </PropertyGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
