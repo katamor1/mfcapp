@@ -22,12 +22,17 @@ using ShelfManager::Domain::TransportDestination;
 using ShelfManager::Domain::WorkpieceId;
 using ShelfManager::Domain::WorkpieceSummary;
 
+// 監視データを更新頻度と用途で分類する。具体的な周期は
+// MonitoringPlanBuilderが管理し、この列挙値自体は時間を表さない。
 enum class MonitoringClass {
     Critical,
     Standard,
     OnDemand
 };
 
+// IMachineStateReaderへ渡す一回分の読取要求。
+// selectedWorkpieceはOnDemand読取の対象Hintであり、実装は必要に応じて
+// 対象を含むより広いFragmentを返してよい。
 struct MonitoringRequest final {
     MonitoringClass monitoringClass;
     std::optional<WorkpieceId> selectedWorkpiece;
@@ -46,6 +51,9 @@ struct MonitoringRequest final {
     }
 };
 
+// 一回の監視読取で取得できた部分データを表す。
+// optionalがnulloptの項目は「値なし」ではなく「今回の読取対象外」を意味し、
+// MachineSnapshotAssemblerは既存値を暗黙に消去しない。
 struct MachineSnapshotFragment final {
     std::optional<MachineHealth> health;
     std::optional<RackLayout> rackLayout;
@@ -72,6 +80,8 @@ struct MachineSnapshotFragment final {
     }
 };
 
+// QueuePriority変更要求に対する受付結果。
+// acceptedは要求受付だけを示し、実値一致は後続のStandard読戻しで確認する。
 struct PriorityChangeReceipt final {
     bool accepted;
 
@@ -88,6 +98,8 @@ struct PriorityChangeReceipt final {
     }
 };
 
+// Workpiece搬送要求。baseVersionは選択時のSnapshotVersionであり、
+// Gatewayは現在状態と一致しない要求をConflictとして拒否できる。
 struct TransportRequest final {
     SnapshotVersion baseVersion;
     WorkpieceId workpieceId;
@@ -108,6 +120,8 @@ struct TransportRequest final {
     }
 };
 
+// 搬送要求に対する受付結果。
+// acceptedは物理搬送の開始・完了を保証しないため、状態監視で確定する。
 struct TransportReceipt final {
     bool accepted;
 
@@ -128,6 +142,8 @@ enum class OperatorAction {
     ManualTransport
 };
 
+// Snapshotのどの表示領域が変化したかを示す通知Hint。
+// 受信側はこの値を正本にせず、MachineSnapshotStoreの最新値を再取得する。
 enum class SnapshotChangeFlag : std::uint32_t {
     None = 0U,
     Health = 1U << 0U,
@@ -160,6 +176,8 @@ constexpr SnapshotChangeFlag& operator|=(
             static_cast<std::uint32_t>(flag)) != 0U;
 }
 
+// Application process内で操作を追跡する識別子。
+// 永続IDや機械側の要求IDではなく、同一Store内で一意に割り当てる。
 class OperationId final {
 public:
     explicit constexpr OperationId(std::uint64_t value) noexcept : value_(value) {}
@@ -219,6 +237,8 @@ enum class OperationPhase {
     Failed
 };
 
+// UI上の操作進捗と診断を保持するRecord。
+// startedAtとcompletedAtは同じIClock系列のTimePointを使用する。
 struct OperationRecord final {
     OperationId id;
     OperationKind kind;
