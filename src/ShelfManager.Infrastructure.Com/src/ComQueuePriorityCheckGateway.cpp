@@ -15,6 +15,7 @@ namespace {
 
 using namespace ShelfManager::Domain;
 
+// BSTRの解放責任をこのRAII型へ集約し、Raw API境界の外へ所有権を漏らさない。
 class BstrOwner final {
 public:
     BstrOwner() noexcept = default;
@@ -191,6 +192,9 @@ Result<QueuePriorityCheckResponse> ComQueuePriorityCheckGateway::Check(
             MapHresult(rawResult),
             "comQueuePriorityCheckApi failed.");
     }
+
+    // SAFETY: Raw APIが成功を返してもoutputがnullの場合は、
+    // 判定結果を確定できないためInvalidResponseとする。
     if (output.Get() == nullptr) {
         return Failure<QueuePriorityCheckResponse>(
             ErrorCode::InvalidResponse,
