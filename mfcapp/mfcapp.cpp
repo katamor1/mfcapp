@@ -39,7 +39,7 @@ BOOL CmfcappApp::InitInstance() {
     }
     m_pMainWnd = pFrame;
 
-    // Frame resourceの生成に成功した後、UI thread上で表示を開始する。
+    // Frame resourceを読み込み、MFCのMain Windowを構成する。
     pFrame->LoadFrame(
         IDR_MAINFRAME,
         WS_OVERLAPPEDWINDOW | FWS_ADDTOTITLE,
