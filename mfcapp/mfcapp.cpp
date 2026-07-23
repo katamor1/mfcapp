@@ -1,4 +1,3 @@
-﻿
 // mfcapp.cpp : アプリケーションのクラス動作を定義します。
 //
 
@@ -9,129 +8,80 @@
 #include "mfcapp.h"
 #include "MainFrm.h"
 
-
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
-
-// CmfcappApp
-
 BEGIN_MESSAGE_MAP(CmfcappApp, CWinApp)
-	ON_COMMAND(ID_APP_ABOUT, &CmfcappApp::OnAppAbout)
+    ON_COMMAND(ID_APP_ABOUT, &CmfcappApp::OnAppAbout)
 END_MESSAGE_MAP()
 
-
-// CmfcappApp の構築
-
-CmfcappApp::CmfcappApp() noexcept
-{
-
-	// TODO: 下のアプリケーション ID 文字列を一意の ID 文字列で置換します。推奨される
-	// 文字列の形式は CompanyName.ProductName.SubProduct.VersionInformation です
-	SetAppID(_T("mfcapp.AppID.NoVersion"));
-
-	// TODO: この位置に構築用コードを追加してください。
-	// ここに InitInstance 中の重要な初期化処理をすべて記述してください。
+CmfcappApp::CmfcappApp() noexcept {
+    // MVP Shellを他のMFC Applicationから区別するProcess識別子。
+    // 業務データの識別子やCOM dataIdとしては使用しない。
+    SetAppID(_T("mfcapp.AppID.NoVersion"));
 }
-
-// 唯一の CmfcappApp オブジェクト
 
 CmfcappApp theApp;
 
+BOOL CmfcappApp::InitInstance() {
+    CWinApp::InitInstance();
 
-// CmfcappApp の初期化
+    EnableTaskbarInteraction(FALSE);
 
-BOOL CmfcappApp::InitInstance()
-{
-	CWinApp::InitInstance();
+    // MVPでは業務データをRegistryへ保存せず、MFC Shell固有の設定領域だけを分離する。
+    SetRegistryKey(_T("アプリケーション ウィザードで生成されたローカル アプリケーション"));
 
+    // CMainFrameはApplicationのMain WindowとしてMFC lifecycleへ引き渡す。
+    CFrameWnd* pFrame = new CMainFrame;
+    if (!pFrame) {
+        return FALSE;
+    }
+    m_pMainWnd = pFrame;
 
-	EnableTaskbarInteraction(FALSE);
+    // Frame resourceの生成に成功した後、UI thread上で表示を開始する。
+    pFrame->LoadFrame(
+        IDR_MAINFRAME,
+        WS_OVERLAPPEDWINDOW | FWS_ADDTOTITLE,
+        nullptr,
+        nullptr);
 
-	// RichEdit コントロールを使用するには AfxInitRichEdit2() が必要です
-	// AfxInitRichEdit2();
-
-	// 標準初期化
-	// これらの機能を使わずに最終的な実行可能ファイルの
-	// サイズを縮小したい場合は、以下から不要な初期化
-	// ルーチンを削除してください。
-	// 設定が格納されているレジストリ キーを変更します。
-	// TODO: 会社名または組織名などの適切な文字列に
-	// この文字列を変更してください。
-	SetRegistryKey(_T("アプリケーション ウィザードで生成されたローカル アプリケーション"));
-
-
-	// メイン ウィンドウを作成するとき、このコードは新しいフレーム ウィンドウ オブジェクトを作成し、
-	// それをアプリケーションのメイン ウィンドウにセットします
-	CFrameWnd* pFrame = new CMainFrame;
-	if (!pFrame)
-		return FALSE;
-	m_pMainWnd = pFrame;
-	// フレームをリソースからロードして作成します
-	pFrame->LoadFrame(IDR_MAINFRAME,
-		WS_OVERLAPPEDWINDOW | FWS_ADDTOTITLE, nullptr,
-		nullptr);
-
-
-
-
-
-	// メイン ウィンドウが初期化されたので、表示と更新を行います。
-	pFrame->ShowWindow(SW_SHOW);
-	pFrame->UpdateWindow();
-	return TRUE;
+    pFrame->ShowWindow(SW_SHOW);
+    pFrame->UpdateWindow();
+    return TRUE;
 }
 
-int CmfcappApp::ExitInstance()
-{
-	//TODO: 追加したリソースがある場合にはそれらも処理してください
-	return CWinApp::ExitInstance();
+int CmfcappApp::ExitInstance() {
+    // 現在のShellは追加のApplication Resourceを所有していない。
+    // WorkerやCOM AdapterをComposition Rootへ接続した場合は、ここへ到達する前に
+    // UI通知停止、Worker join、COM解放の順序を確定する。
+    return CWinApp::ExitInstance();
 }
 
-// CmfcappApp メッセージ ハンドラー
-
-
-// アプリケーションのバージョン情報に使われる CAboutDlg ダイアログ
-
-class CAboutDlg : public CDialogEx
-{
+// ApplicationのVersion情報を表示するModal Dialog。
+class CAboutDlg : public CDialogEx {
 public:
-	CAboutDlg() noexcept;
+    CAboutDlg() noexcept;
 
-// ダイアログ データ
 #ifdef AFX_DESIGN_TIME
-	enum { IDD = IDD_ABOUTBOX };
+    enum { IDD = IDD_ABOUTBOX };
 #endif
 
 protected:
-	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV サポート
-
-// 実装
-protected:
-	DECLARE_MESSAGE_MAP()
+    void DoDataExchange(CDataExchange* pDX) override;
+    DECLARE_MESSAGE_MAP()
 };
 
-CAboutDlg::CAboutDlg() noexcept : CDialogEx(IDD_ABOUTBOX)
-{
-}
+CAboutDlg::CAboutDlg() noexcept : CDialogEx(IDD_ABOUTBOX) {}
 
-void CAboutDlg::DoDataExchange(CDataExchange* pDX)
-{
-	CDialogEx::DoDataExchange(pDX);
+void CAboutDlg::DoDataExchange(CDataExchange* pDX) {
+    CDialogEx::DoDataExchange(pDX);
 }
 
 BEGIN_MESSAGE_MAP(CAboutDlg, CDialogEx)
 END_MESSAGE_MAP()
 
-// ダイアログを実行するためのアプリケーション コマンド
-void CmfcappApp::OnAppAbout()
-{
-	CAboutDlg aboutDlg;
-	aboutDlg.DoModal();
+void CmfcappApp::OnAppAbout() {
+    CAboutDlg aboutDlg;
+    aboutDlg.DoModal();
 }
-
-// CmfcappApp メッセージ ハンドラー
-
-
-
