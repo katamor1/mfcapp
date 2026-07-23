@@ -158,6 +158,14 @@ function Invoke-TaskMarkerTests {
         )
         Assert-Equal 0 @(Test-CommentPolicyFile $root "src/BlockTodo.cpp").Count `
             "block comment task marker must be detected and validated"
+
+        Write-PolicyCase $root "src/BlankLines.cpp" @(
+            "",
+            "// 通常コメント。",
+            ""
+        )
+        Assert-Equal 0 @(Test-CommentPolicyFile $root "src/BlankLines.cpp").Count `
+            "blank lines must not make the scanner fail"
     }
     finally {
         Remove-Item $root -Recurse -Force
