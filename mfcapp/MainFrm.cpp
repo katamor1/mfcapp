@@ -45,7 +45,7 @@ BOOL CMainFrame::PreCreateWindow(CREATESTRUCT& cs) {
         return FALSE;
     }
 
-    // MVP ShellではDocument titleやClient edgeを持たない単一Frameとして生成する。
+    // MVP Shellで採用するFrame styleを明示し、Client edgeを外す。
     cs.style = WS_OVERLAPPED | WS_CAPTION | FWS_ADDTOTITLE;
     cs.dwExStyle &= ~WS_EX_CLIENTEDGE;
     cs.lpszClass = AfxRegisterWndClass(0);
