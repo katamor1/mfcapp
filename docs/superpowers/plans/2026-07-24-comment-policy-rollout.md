@@ -4,7 +4,7 @@
 
 **目的:** 承認済みの`docs/development/comment-policy.md`に基づき、PRで変更した自社管理ファイルを対象とする軽量検査、PRレビュー用チェック項目、および高リスク領域のコメント整備を導入する。
 
-**アーキテクチャ:** コメント検査はPowerShell Moduleへ純粋な判定関数を集約し、薄いCLI Scriptから変更ファイル選択とレポート出力を行う。CIは形式的に判定できる違反だけをブロックし、安全性、スレッド、所有権、外部契約、Public APIコメントの意味は人手レビューで確認する。既存コードは外部境界、変更系Use Case、Worker、Fake／Mockの順に段階整備する。
+**アーキテクチャ:** コメント検査はPowerShell Moduleへ判定関数を集約し、薄いCLI Scriptから変更ファイル選択とレポート出力を行う。CIは形式的に判定できる違反だけをブロックし、安全性、スレッド、所有権、外部契約、Public APIコメントの意味は人手レビューで確認する。既存コードは外部境界、変更系Use Case、Worker、Fake／Mockの順に段階整備する。
 
 **技術スタック:** C++17、MFC、PowerShell 7、Git、GitHub Actions、MSBuild／Visual Studio 2026 toolset v145、GoogleTest、vcpkg。
 
@@ -18,7 +18,9 @@
 - `FIXME`は原則マージ前に解消し、例外的に残す場合はIssue番号、`影響:`、`SAFETY:`、`完了条件:`を必須とする。
 - `#if 0`および理由のないコメントアウトコードは原則禁止する。
 - CIはPRで追加・変更した自社管理ファイルの全体を検査し、変更していない既存ファイルは初期段階では自動ブロックしない。
+- 初期検査拡張子は`.h`、`.hpp`、`.cpp`、`.cxx`、`.ps1`、`.psm1`とする。
 - 自動生成コード、外部ライブラリ、未変更のベンダーコード、`vcpkg_installed/`、`out/`、`obj/`、`packages/`、`third_party/`、`external/`、`generated/`は除外する。
+- 検査はコメントとして記述された`TODO`／`FIXME`だけを対象とし、文字列リテラルや正規表現中の単語を誤検出しない。
 - コメント整備タスクでは製品動作を変更しない。動作変更が必要と判明した場合は別Issue／別PRへ分離する。
 - 新規・変更コードは`/std:c++17 /W4 /WX /permissive- /utf-8`を維持する。
 - Debug／Release × Win32／x64の全構成を維持する。
@@ -26,27 +28,21 @@
 ## 対象ファイル構成
 
 ```text
-tools/
-├─ CommentPolicy/
-│  └─ CommentPolicy.psm1             判定、対象選択、違反モデル
-└─ check-comment-policy.ps1           CLI、レポート、終了コード
+tools/CommentPolicy/CommentPolicy.psm1
+tools/check-comment-policy.ps1
+tests/tools/CommentPolicyCheck.Tests.ps1
+.github/pull_request_template.md
+.github/workflows/build.yml
+docs/development/comment-policy.md
 
-tests/tools/
-└─ CommentPolicyCheck.Tests.ps1       PowerShell単体・統合テスト
-
-.github/
-├─ pull_request_template.md            人手レビュー用の要約チェック
-└─ workflows/build.yml                 Test／Enforce／Artifact Upload
-
-docs/development/comment-policy.md     実装済みコマンドと導入状態を追記
-
-高リスクコメント整備:
-├─ src/ShelfManager.Infrastructure.Com/include/...
-├─ src/ShelfManager.Infrastructure.Com/src/...
-├─ src/ShelfManager.Application/include/...
-├─ src/ShelfManager.Application/src/...
-├─ src/ShelfManager.Infrastructure.Fake/include/...
-└─ tests/ShelfManager.*.Tests/...
+src/ShelfManager.Infrastructure.Com/include/ShelfManager/Infrastructure/Com/
+src/ShelfManager.Infrastructure.Com/src/
+src/ShelfManager.Application/include/ShelfManager/Application/
+src/ShelfManager.Application/src/
+src/ShelfManager.Infrastructure.Fake/include/ShelfManager/Infrastructure/Fake/
+tests/ShelfManager.Domain.Tests/
+tests/ShelfManager.Application.Tests/
+tests/ShelfManager.Infrastructure.Com.Tests/
 ```
 
 ---
@@ -60,15 +56,12 @@ docs/development/comment-policy.md     実装済みコマンドと導入状態�
 
 **インターフェイス:**
 
-- 入力: Repository root、`BaseRef`、`HeadRef`、明示Path、または全件指定
-- 出力: 正規化済みのRepository相対パス配列
-- 公開関数:
-  - `Test-CommentPolicyPath([string]$Path) -> bool`
-  - `Get-CommentPolicyFiles([string]$RepoRoot, [string]$BaseRef, [string]$HeadRef, [string[]]$Path, [switch]$All) -> string[]`
+- `Test-CommentPolicyPath([string]$Path) -> bool`
+- `Get-CommentPolicyFiles([string]$RepoRoot, [string]$BaseRef, [string]$HeadRef, [string[]]$Path, [switch]$All) -> string[]`
 
 - [ ] **手順1: 失敗する対象選択テストを書く**
 
-`tests/tools/CommentPolicyCheck.Tests.ps1`を次の骨格で作成する。
+`tests/tools/CommentPolicyCheck.Tests.ps1`を作成する。
 
 ```powershell
 $ErrorActionPreference = "Stop"
@@ -101,17 +94,20 @@ function New-TestRepository {
 function Invoke-PathFilteringTest {
     Assert-True (Test-CommentPolicyPath "src/Foo.cpp") "cpp must be checked"
     Assert-True (Test-CommentPolicyPath "tools/check.ps1") "ps1 must be checked"
+    Assert-True (Test-CommentPolicyPath "tools/Policy.psm1") "psm1 must be checked"
     Assert-True (-not (Test-CommentPolicyPath "docs/design.md")) "md must be ignored"
     Assert-True (-not (Test-CommentPolicyPath "third_party/Foo.cpp")) `
         "third_party must be ignored"
-    Assert-True (-not (Test-CommentPolicyPath "out/x64/Foo.cpp")) `
-        "out must be ignored"
+    Assert-True (-not (Test-CommentPolicyPath "OUT/x64/Foo.cpp")) `
+        "excluded directory matching must be case-insensitive"
 }
 
 function Invoke-ChangedFileSelectionTest {
     $root = New-TestRepository
+    $pushed = $false
     try {
         Push-Location $root
+        $pushed = $true
         git init --quiet
         git config user.email "comment-policy@example.invalid"
         git config user.name "Comment Policy Test"
@@ -136,7 +132,7 @@ function Invoke-ChangedFileSelectionTest {
         Assert-Equal "src/Changed.cpp" $files[0] "changed managed file mismatch"
     }
     finally {
-        Pop-Location
+        if ($pushed) { Pop-Location }
         Remove-Item $root -Recurse -Force
     }
 }
@@ -148,8 +144,6 @@ Write-Host "Comment policy path-selection tests passed."
 
 - [ ] **手順2: Module未作成で失敗することを確認する**
 
-実行:
-
 ```powershell
 pwsh -NoProfile -File ./tests/tools/CommentPolicyCheck.Tests.ps1
 ```
@@ -158,13 +152,13 @@ pwsh -NoProfile -File ./tests/tools/CommentPolicyCheck.Tests.ps1
 
 - [ ] **手順3: 対象選択の最小実装を書く**
 
-`tools/CommentPolicy/CommentPolicy.psm1`へ次を実装する。
+`tools/CommentPolicy/CommentPolicy.psm1`を作成する。
 
 ```powershell
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$script:AllowedExtensions = @(".h", ".hpp", ".cpp", ".cxx", ".ps1")
+$script:AllowedExtensions = @(".h", ".hpp", ".cpp", ".cxx", ".ps1", ".psm1")
 $script:ExcludedDirectories = @(
     ".git", "vcpkg_installed", "out", "obj", "packages",
     "third_party", "external", "generated"
@@ -172,7 +166,8 @@ $script:ExcludedDirectories = @(
 
 function ConvertTo-RepositoryPath {
     param([Parameter(Mandatory = $true)][string]$Path)
-    return ($Path -replace "\\", "/").TrimStart(".", "/")
+    $normalized = $Path -replace "\\", "/"
+    return $normalized.TrimStart([char[]]@(".", "/"))
 }
 
 function Test-CommentPolicyPath {
@@ -181,7 +176,7 @@ function Test-CommentPolicyPath {
     $normalized = ConvertTo-RepositoryPath $Path
     $segments = $normalized.Split("/", [System.StringSplitOptions]::RemoveEmptyEntries)
     foreach ($segment in $segments) {
-        if ($script:ExcludedDirectories -ccontains $segment) { return $false }
+        if ($script:ExcludedDirectories -contains $segment) { return $false }
     }
 
     $extension = [System.IO.Path]::GetExtension($normalized).ToLowerInvariant()
@@ -198,11 +193,10 @@ function Get-CommentPolicyFiles {
         [switch]$All
     )
 
-    $selectionCount = @(
-        [bool]$All,
-        [bool]($Path -and $Path.Count -gt 0),
-        [bool](-not [string]::IsNullOrWhiteSpace($BaseRef))
-    ).Where({ $_ }).Count
+    $selectionCount = 0
+    if ($All) { ++$selectionCount }
+    if ($Path -and $Path.Count -gt 0) { ++$selectionCount }
+    if (-not [string]::IsNullOrWhiteSpace($BaseRef)) { ++$selectionCount }
     if ($selectionCount -ne 1) {
         throw "Specify exactly one of -All, -Path, or -BaseRef/-HeadRef."
     }
@@ -262,7 +256,7 @@ git commit -m "test: add comment policy file selection"
 
 ---
 
-### タスク2: `TODO`／`FIXME`の形式検査を追加する
+### タスク2: `TODO`／`FIXME`のコメント形式検査を追加する
 
 **対象ファイル:**
 
@@ -271,22 +265,12 @@ git commit -m "test: add comment policy file selection"
 
 **インターフェイス:**
 
-- 追加公開関数: `Test-CommentPolicyFile([string]$RepoRoot, [string]$Path) -> violation[]`
-- 違反モデル:
-
-```powershell
-[pscustomobject]@{
-    Path       = "src/Foo.cpp"
-    LineNumber = 12
-    Rule       = "TODO_ISSUE"
-    Message    = "TODOにはIssue番号が必要です。"
-    Text       = "// TODO: later"
-}
-```
+- `Test-CommentPolicyFile([string]$RepoRoot, [string]$Path) -> violation[]`
+- violationは`Path`、`LineNumber`、`Rule`、`Message`、`Text`を持つ。
 
 - [ ] **手順1: 課題コメントの失敗テストを追加する**
 
-テストファイルへ、禁止Token自体が検査対象Scriptへ直書きされないよう文字列を分割して追加する。
+テストファイルへ追加する。禁止Tokenは文字列分割で作り、検査Script自身のコメントとして誤認されないようにする。
 
 ```powershell
 function Write-PolicyCase {
@@ -307,7 +291,7 @@ function Invoke-TaskMarkerTests {
             "// 完了条件: Win32/x64の契約テストが成功すること。"
         )
         Assert-Equal 0 @(Test-CommentPolicyFile $root "src/ValidTodo.cpp").Count `
-            "valid TODO must pass"
+            "valid task comment must pass"
 
         Write-PolicyCase $root "src/TodoWithoutIssue.cpp" @(
             "// ${todo}: 後で修正する。",
@@ -315,14 +299,14 @@ function Invoke-TaskMarkerTests {
         )
         $violations = @(Test-CommentPolicyFile $root "src/TodoWithoutIssue.cpp")
         Assert-True ($violations.Rule -contains "TODO_ISSUE") `
-            "TODO without issue must fail"
+            "task comment without issue must fail"
 
         Write-PolicyCase $root "src/TodoWithoutCompletion.cpp" @(
             "// $todo(#124): 正式値へ置き換える。"
         )
         $violations = @(Test-CommentPolicyFile $root "src/TodoWithoutCompletion.cpp")
         Assert-True ($violations.Rule -contains "TODO_COMPLETION") `
-            "TODO without completion must fail"
+            "task comment without completion must fail"
 
         Write-PolicyCase $root "src/ValidFixme.cpp" @(
             "// $fixme(#245): timeout契約が未確定。",
@@ -331,7 +315,7 @@ function Invoke-TaskMarkerTests {
             "// 完了条件: 正式値と契約テストを追加する。"
         )
         Assert-Equal 0 @(Test-CommentPolicyFile $root "src/ValidFixme.cpp").Count `
-            "valid FIXME must pass"
+            "valid defect comment must pass"
 
         Write-PolicyCase $root "src/IncompleteFixme.cpp" @(
             "// $fixme(#246): timeout契約が未確定。",
@@ -339,9 +323,15 @@ function Invoke-TaskMarkerTests {
         )
         $violations = @(Test-CommentPolicyFile $root "src/IncompleteFixme.cpp")
         Assert-True ($violations.Rule -contains "FIXME_IMPACT") `
-            "FIXME without impact must fail"
+            "defect comment without impact must fail"
         Assert-True ($violations.Rule -contains "FIXME_SAFETY") `
-            "FIXME without safety action must fail"
+            "defect comment without safety action must fail"
+
+        Write-PolicyCase $root "src/StringLiteral.cpp" @(
+            'const char* text = "TODO and FIXME are test data";'
+        )
+        Assert-Equal 0 @(Test-CommentPolicyFile $root "src/StringLiteral.cpp").Count `
+            "tokens in string literals must not be treated as comments"
     }
     finally {
         Remove-Item $root -Recurse -Force
@@ -359,9 +349,9 @@ pwsh -NoProfile -File ./tests/tools/CommentPolicyCheck.Tests.ps1
 
 期待結果: `Test-CommentPolicyFile`未定義で失敗する。
 
-- [ ] **手順3: 課題コメント検査を実装する**
+- [ ] **手順3: コメント行だけを対象に課題規則を実装する**
 
-Moduleへ次の関数を追加する。
+Moduleへ追加する。
 
 ```powershell
 function New-CommentPolicyViolation {
@@ -386,6 +376,12 @@ function Test-IsCommentContinuation {
     return $Line.Trim() -match "^(//|#|/\*|\*|\*/)"
 }
 
+function Test-ContainsCommentMarker {
+    param([string]$Line, [string]$Marker)
+    $escaped = [regex]::Escape($Marker)
+    return $Line -match "(?://|#|\*)\s*$escaped\b"
+}
+
 function Get-ForwardCommentContext {
     param([string[]]$Lines, [int]$Index, [int]$MaximumLineCount = 8)
 
@@ -406,9 +402,9 @@ function Test-TaskMarkerRules {
     $violations = New-Object System.Collections.Generic.List[object]
     for ($index = 0; $index -lt $Lines.Count; ++$index) {
         $line = $Lines[$index]
-        if ($line -match "\bTODO\b") {
+        if (Test-ContainsCommentMarker $line "TODO") {
             $context = Get-ForwardCommentContext $Lines $index 6
-            if ($line -notmatch "\bTODO\(#\d+\):") {
+            if ($line -notmatch "(?://|#|\*)\s*TODO\(#\d+\):") {
                 $violations.Add((New-CommentPolicyViolation $Path ($index + 1) `
                     "TODO_ISSUE" "TODOにはIssue番号が必要です。" $line))
             }
@@ -418,9 +414,9 @@ function Test-TaskMarkerRules {
             }
         }
 
-        if ($line -match "\bFIXME\b") {
+        if (Test-ContainsCommentMarker $line "FIXME") {
             $context = Get-ForwardCommentContext $Lines $index 8
-            if ($line -notmatch "\bFIXME\(#\d+\):") {
+            if ($line -notmatch "(?://|#|\*)\s*FIXME\(#\d+\):") {
                 $violations.Add((New-CommentPolicyViolation $Path ($index + 1) `
                     "FIXME_ISSUE" "FIXMEにはIssue番号が必要です。" $line))
             }
@@ -467,7 +463,7 @@ pwsh -NoProfile -File ./tests/tools/CommentPolicyCheck.Tests.ps1
 
 ```bash
 git add tools/CommentPolicy/CommentPolicy.psm1 tests/tools/CommentPolicyCheck.Tests.ps1
-git commit -m "feat: validate TODO and FIXME comments"
+git commit -m "feat: validate task and defect comments"
 ```
 
 ---
@@ -482,15 +478,15 @@ git commit -m "feat: validate TODO and FIXME comments"
 
 **インターフェイス:**
 
-- CLI:
+- CLI Parameter Set:
   - `-BaseRef <sha> -HeadRef <sha>`
   - `-All`
   - `-Path <paths[]>`
-  - `-ReportPath <path>`、既定値`comment-policy-violations.txt`
-- 成功: reportを削除して終了コード0
-- 違反: reportを書き、GitHub annotationを出して終了コード1
+- `-ReportPath`既定値: `comment-policy-violations.txt`
+- 違反なし: reportを削除し終了コード0
+- 違反あり: reportとGitHub annotationを生成し終了コード1
 
-- [ ] **手順1: 無効化コードとCLIの失敗テストを追加する**
+- [ ] **手順1: 無効化コードとタグの失敗テストを追加する**
 
 ```powershell
 function Invoke-DisabledCodeAndTagTests {
@@ -500,7 +496,7 @@ function Invoke-DisabledCodeAndTagTests {
         Write-PolicyCase $root "src/IfZero.cpp" @($ifZero, "legacy();", "#endif")
         $violations = @(Test-CommentPolicyFile $root "src/IfZero.cpp")
         Assert-True ($violations.Rule -contains "DISABLED_IF_ZERO") `
-            "#if 0 must fail"
+            "disabled preprocessor block must fail"
 
         Write-PolicyCase $root "src/CommentedCode.cpp" @(
             "// return Result<void>::Success();"
@@ -524,6 +520,13 @@ function Invoke-DisabledCodeAndTagTests {
         $violations = @(Test-CommentPolicyFile $root "src/TagTypo.cpp")
         Assert-True ($violations.Rule -contains "COMMENT_TAG_TYPO") `
             "known tag typo must fail"
+
+        Write-PolicyCase $root "src/LowerTag.cpp" @(
+            "// safety: 応答不明時は搬送しない。"
+        )
+        $violations = @(Test-CommentPolicyFile $root "src/LowerTag.cpp")
+        Assert-True ($violations.Rule -contains "COMMENT_TAG_CASE") `
+            "lowercase standard tag must fail"
 
         Write-PolicyCase $root "src/Prose.cpp" @(
             "// 搬送要求は状態読戻し後に完了判定する。"
@@ -550,8 +553,11 @@ function Invoke-CliReportTest {
         $report = Join-Path $root "violations.txt"
         $cli = Join-Path $PSScriptRoot "..\..\tools\check-comment-policy.ps1"
 
-        & $cli -RepoRoot $root -Path "src/Invalid.cpp" -ReportPath $report
-        Assert-True ($LASTEXITCODE -ne 0) "CLI must fail for violations"
+        & pwsh -NoProfile -File $cli `
+            -RepoRoot $root -Path "src/Invalid.cpp" -ReportPath $report
+        $exitCode = $LASTEXITCODE
+
+        Assert-True ($exitCode -ne 0) "CLI must fail for violations"
         Assert-True (Test-Path $report) "CLI must write report"
     }
     finally {
@@ -568,7 +574,7 @@ Invoke-CliReportTest
 pwsh -NoProfile -File ./tests/tools/CommentPolicyCheck.Tests.ps1
 ```
 
-期待結果: `DISABLED_IF_ZERO`等が返らない、またはCLI不存在で失敗する。
+期待結果: 新規Ruleが返らない、またはCLI不存在で失敗する。
 
 - [ ] **手順3: 無効化コードとタグ規則を実装する**
 
@@ -613,7 +619,7 @@ function Test-DisabledCodeRules {
 
         $isCommentedCode =
             (($extension -in @(".h", ".hpp", ".cpp", ".cxx")) -and $line -match $cppPattern) -or
-            (($extension -eq ".ps1") -and $line -match $powershellPattern)
+            (($extension -in @(".ps1", ".psm1")) -and $line -match $powershellPattern)
         if ($isCommentedCode) {
             $context = Get-BackwardCommentContext $Lines $index 8
             $temporaryException =
@@ -627,7 +633,8 @@ function Test-DisabledCodeRules {
         }
 
         foreach ($typo in $script:KnownTagTypos.Keys) {
-            if ($line -cmatch ([regex]::Escape($typo))) {
+            $tagPattern = "^\s*(//|#|\*)\s*" + [regex]::Escape($typo)
+            if ($line -cmatch $tagPattern) {
                 $violations.Add((New-CommentPolicyViolation $Path ($index + 1) `
                     "COMMENT_TAG_TYPO" `
                     "コメントタグ[$typo]は[$($script:KnownTagTypos[$typo])]の誤記です。" `
@@ -644,7 +651,7 @@ function Test-DisabledCodeRules {
 }
 ```
 
-`Test-CommentPolicyFile`で課題コメント規則と無効化コード規則を結合する。
+`Test-CommentPolicyFile`の戻り値を次へ変更する。
 
 ```powershell
 $violations = New-Object System.Collections.Generic.List[object]
@@ -684,14 +691,14 @@ Set-StrictMode -Version Latest
 
 Import-Module (Join-Path $PSScriptRoot "CommentPolicy\CommentPolicy.psm1") -Force
 
-$selection = switch ($PSCmdlet.ParameterSetName) {
+$selection = @(switch ($PSCmdlet.ParameterSetName) {
     "All" { Get-CommentPolicyFiles -RepoRoot $RepoRoot -All }
     "Path" { Get-CommentPolicyFiles -RepoRoot $RepoRoot -Path $Path }
     default {
         Get-CommentPolicyFiles -RepoRoot $RepoRoot `
             -BaseRef $BaseRef -HeadRef $HeadRef
     }
-}
+})
 
 $violations = New-Object System.Collections.Generic.List[object]
 foreach ($file in $selection) {
@@ -735,7 +742,7 @@ pwsh -NoProfile -File ./tools/check-comment-policy.ps1 `
   -Path tools/CommentPolicy/CommentPolicy.psm1,tools/check-comment-policy.ps1
 ```
 
-期待結果: テスト成功。CLIは終了コード0で既存reportを残さない。
+期待結果: テスト成功。CLIは終了コード0でreportを残さない。
 
 - [ ] **手順6: コミットする**
 
@@ -755,9 +762,9 @@ git commit -m "feat: add lightweight comment policy checker"
 
 **インターフェイス:**
 
-- PR時: `github.event.pull_request.base.sha`から`head.sha`までの変更ファイル全体を検査
-- `workflow_dispatch`時: `origin/main`とのmerge-baseから`HEAD`までを検査
-- Artifact: `comment-policy-violations.txt`
+- PR時: `github.event.pull_request.base.sha`から`head.sha`までを検査する。
+- `workflow_dispatch`時: `origin/main`とのmerge-baseから`HEAD`までを検査する。
+- 違反レポート: `comment-policy-violations.txt`。
 
 - [ ] **手順1: PRテンプレートが未存在であることを確認する**
 
@@ -782,7 +789,7 @@ if (Test-Path ./.github/pull_request_template.md) {
 
 ## コメントポリシー確認
 
-詳細: [`docs/development/comment-policy.md`](../docs/development/comment-policy.md)
+詳細は`docs/development/comment-policy.md`を参照する。
 
 - [ ] コメントは逐語説明ではなく、理由・制約・根拠を示している
 - [ ] 安全条件、非再試行、読戻し確認の意図を追跡できる
@@ -831,13 +838,13 @@ C++17検査後、vcpkg復元前に次を追加する。
           }
 ```
 
-Artifact upload対象へ追加する。
+Artifact upload対象へ次を追加する。
 
 ```yaml
             comment-policy-violations.txt
 ```
 
-- [ ] **手順4: Workflow構文とローカル検査を確認する**
+- [ ] **手順4: Workflow用のローカル検査を実行する**
 
 ```powershell
 pwsh -NoProfile -File ./tests/tools/CommentPolicyCheck.Tests.ps1
@@ -871,7 +878,7 @@ git commit -m "ci: enforce comment policy on changed files"
 
 **インターフェイス:**
 
-- 製品動作とシグネチャは変更しない。
+- 製品動作とシグネチャを変更しない。
 - Raw API、Adapter、Codec、File-backed Doubleの責務と非責務を日本語で明示する。
 
 - [ ] **手順1: 現在の英語・不足コメントを一覧化する**
@@ -889,11 +896,11 @@ $files = @(
 Select-String -Path $files -Pattern "//|/\*" | Format-Table Path, LineNumber, Line
 ```
 
-期待結果: Raw APIの英語`SOURCE`、File-backed Doubleの英語説明、Public API説明不足を確認できる。
+期待結果: Raw APIとFile-backed Doubleの英語説明、Public API説明不足を確認できる。
 
 - [ ] **手順2: Raw APIの所有権と未確定契約を記述する**
 
-`IRawQueuePriorityCheckApi`の`Check`直前を次へ置換する。
+`IRawQueuePriorityCheckApi::Check`直前を次へ置換する。
 
 ```cpp
 // ベンダー関数comQueuePriorityCheckApiのBSTR入出力を隔離するRaw境界。
@@ -949,7 +956,7 @@ class FileBackedQueuePriorityCheckApi final
 
 - [ ] **手順5: Source内の重要判断コメントを日本語へ統一する**
 
-最低限、次の判断点をコメントする。
+次の判断点を対象コードの直前へ記載する。
 
 ```cpp
 // SAFETY: Raw APIが成功を返してもoutputがnullの場合は、
@@ -969,9 +976,21 @@ class FileBackedQueuePriorityCheckApi final
 - [ ] **手順6: 検査、ビルド、Infrastructure Testを実行する**
 
 ```powershell
+$files = @(
+  "src/ShelfManager.Infrastructure.Com/include/ShelfManager/Infrastructure/Com/IRawQueuePriorityCheckApi.h",
+  "src/ShelfManager.Infrastructure.Com/include/ShelfManager/Infrastructure/Com/ComQueuePriorityCheckGateway.h",
+  "src/ShelfManager.Infrastructure.Com/include/ShelfManager/Infrastructure/Com/FileBackedQueuePriorityCheckApi.h",
+  "src/ShelfManager.Infrastructure.Com/include/ShelfManager/Infrastructure/Com/QueuePriorityCheckJsonCodec.h",
+  "src/ShelfManager.Infrastructure.Com/src/ComQueuePriorityCheckGateway.cpp",
+  "src/ShelfManager.Infrastructure.Com/src/FileBackedQueuePriorityCheckApi.cpp",
+  "src/ShelfManager.Infrastructure.Com/src/QueuePriorityCheckJsonCodec.cpp"
+)
 pwsh -NoProfile -File ./tools/check-comment-policy.ps1 -Path $files
-& msbuild mfcapp.slnx /m /nologo `
-  /p:Configuration=Debug /p:Platform=x64
+$msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+  -latest -products * -requires Microsoft.Component.MSBuild `
+  -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+& $msbuild mfcapp.slnx /m /nologo /p:Configuration=Debug /p:Platform=x64
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ./out/x64/Debug/ShelfManager.Infrastructure.Com.Tests.exe
 ```
 
@@ -1000,10 +1019,10 @@ git commit -m "docs: clarify COM and BSTR boundary contracts"
 
 **インターフェイス:**
 
-- 製品動作とシグネチャは変更しない。
+- 製品動作とシグネチャを変更しない。
 - Use Case成功時の保証、Gateway receiptの意味、WorkerのStart／Stop契約を明記する。
 
-- [ ] **手順1: Public APIコメントの不足をレビューする**
+- [ ] **手順1: Public APIコメントの不足を一覧化する**
 
 ```powershell
 $files = @(
@@ -1033,7 +1052,7 @@ Select-String -Path $files -Pattern "class |Execute\(|Start\(|Stop\(|RequestTran
 class IQueuePriorityCheckGateway {
 ```
 
-`CheckAndAdjustQueuePriorityUseCase::Execute`の直前へ次を追加する。
+`CheckAndAdjustQueuePriorityUseCase::Execute`直前へ次を追加する。
 
 ```cpp
 // 指定SnapshotVersionに対応する加工可否判定を実行し、
@@ -1051,36 +1070,37 @@ class IQueuePriorityCheckGateway {
 // 自動運転開始または加工場搬送を確定してはならない。
 [[nodiscard]] ShelfManager::Domain::Result<
     CheckAndAdjustQueuePriorityOutcome>
-Execute(...);
+Execute(
+    QueuePriorityCheckTrigger trigger,
+    ShelfManager::Domain::SnapshotVersion expectedVersion,
+    const ShelfManager::Domain::QueuePriorityCheckRequest& request);
 ```
-
-実際の宣言では既存の引数行を保持し、`...`は使用しない。
 
 - [ ] **手順3: 機械Command／State Portの保証範囲を記述する**
 
-`IMachineCommandGateway`へ次を追加する。
+`IMachineCommandGateway`の各関数直前へ次を追加する。
 
 ```cpp
 // QueuePriorityの変更要求を一度送信する。
 // 成功receiptはGatewayが要求を受け付けたことを示す。
 // 実値の一致は呼出し側がIMachineStateReaderで読戻して確認する。
-[[nodiscard]] virtual Result<PriorityChangeReceipt>
+[[nodiscard]] virtual ShelfManager::Domain::Result<PriorityChangeReceipt>
 ApplyPriorityChange(const PriorityChangePlan& plan) = 0;
 
 // 搬送要求を一度送信する。
 // 成功receiptは要求受付を示し、物理搬送開始・完了を保証しない。
 // SAFETY: 非冪等の可能性があるためGateway内部で自動再試行しない。
-[[nodiscard]] virtual Result<TransportReceipt>
+[[nodiscard]] virtual ShelfManager::Domain::Result<TransportReceipt>
 RequestTransport(const TransportRequest& request) = 0;
 ```
 
-`IMachineStateReader`へ次を追加する。
+`IMachineStateReader::Read`直前へ次を追加する。
 
 ```cpp
 // requestで指定した監視区分の状態Fragmentを同期取得する。
 // 成功結果は取得時点の値であり、MachineSnapshotStoreへの公開は行わない。
 // 実装は失敗を0、空文字、正常値へ置き換えずResultのErrorとして返す。
-[[nodiscard]] virtual Result<MachineSnapshotFragment>
+[[nodiscard]] virtual ShelfManager::Domain::Result<MachineSnapshotFragment>
 Read(const MonitoringRequest& request) = 0;
 ```
 
@@ -1098,7 +1118,7 @@ Headerへ次を追加する。
 class MonitoringWorker final {
 ```
 
-Sourceの`Stop`直前へ次を追加する。
+Sourceの`worker.join()`直前へ次を追加する。
 
 ```cpp
 // THREAD: mutex保持中にjoinするとWorker終了処理との相互待機を招くため、
@@ -1114,7 +1134,7 @@ Sourceの`Stop`直前へ次を追加する。
 // 判定開始時と異なるSnapshotへ結果を適用しない。
 ```
 
-さらに、順位書込み後の読戻し前へ次を追加する。
+順位書込み後の読戻し前へ次を追加する。
 
 ```cpp
 // SAFETY: Gatewayのacceptedだけでは成功表示しない。
@@ -1124,9 +1144,21 @@ Sourceの`Stop`直前へ次を追加する。
 - [ ] **手順6: 検査、ビルド、Application Testを実行する**
 
 ```powershell
+$files = @(
+  "src/ShelfManager.Application/include/ShelfManager/Application/IQueuePriorityCheckGateway.h",
+  "src/ShelfManager.Application/include/ShelfManager/Application/CheckAndAdjustQueuePriorityUseCase.h",
+  "src/ShelfManager.Application/include/ShelfManager/Application/IMachineCommandGateway.h",
+  "src/ShelfManager.Application/include/ShelfManager/Application/IMachineStateReader.h",
+  "src/ShelfManager.Application/include/ShelfManager/Application/MonitoringWorker.h",
+  "src/ShelfManager.Application/src/CheckAndAdjustQueuePriorityUseCase.cpp",
+  "src/ShelfManager.Application/src/MonitoringWorker.cpp"
+)
 pwsh -NoProfile -File ./tools/check-comment-policy.ps1 -Path $files
-& msbuild mfcapp.slnx /m /nologo `
-  /p:Configuration=Debug /p:Platform=x64
+$msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+  -latest -products * -requires Microsoft.Component.MSBuild `
+  -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+& $msbuild mfcapp.slnx /m /nologo /p:Configuration=Debug /p:Platform=x64
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ./out/x64/Debug/ShelfManager.Application.Tests.exe
 ```
 
@@ -1172,7 +1204,7 @@ git commit -m "docs: clarify application safety contracts"
 class FakeMachineGateway final
 ```
 
-`SetLatency`へ次を追加する。
+`SetLatency`直前へ次を追加する。
 
 ```cpp
 // テスト用の同期遅延を設定する。実ネットワークの揺らぎは再現しない。
@@ -1180,7 +1212,14 @@ class FakeMachineGateway final
 void SetLatency(std::chrono::milliseconds latency);
 ```
 
-`CsvScenarioLoader`には、CSVが開発用応答契約であり正式COM契約ではないこと、未知値・欠落・重複をFail Closedで拒否することを記述する。
+`CsvScenarioLoader`には次を記述する。
+
+```cpp
+// 暫定dataIdを使用するCSV応答をFakeScenarioへ変換する開発用Loader。
+// CSVは正式COM契約ではなく、未知値、必須値欠落、重複、範囲外を
+// InvalidResponseとして拒否し、不完全なScenarioを返さない。
+class CsvScenarioLoader final
+```
 
 - [ ] **手順2: 安定順位の非自明な期待だけをコメントする**
 
@@ -1191,11 +1230,11 @@ void SetLatency(std::chrono::milliseconds latency);
 // 判定のたびに末尾グループ内の順序が揺れることを防ぐ。
 ```
 
-テスト名ですでに同じ意味を完全に表現している場合は、コメントを追加せず、テスト名を維持する。両方を重複させない。
+テスト名ですでに同じ意味を完全に表現している場合は、コメントを追加せずテスト名を維持し、重複を避ける。
 
 - [ ] **手順3: Fail Closedと競合の期待理由をコメントする**
 
-`CheckAndAdjustQueuePriorityUseCaseTests.cpp`の次のケースだけに短いコメントを追加する。
+`CheckAndAdjustQueuePriorityUseCaseTests.cpp`の該当ケースへ次を追加する。
 
 ```cpp
 // SAFETY: API失敗時はQueuePriorityを書き込まず、
@@ -1225,7 +1264,7 @@ void SetLatency(std::chrono::milliseconds latency);
 
 ```cpp
 // SOURCE: このDoubleはoutput.jsonの構造とBSTR受渡しだけを再現する。
-// 工具残寿命の計算結果そのものは固定Fixtureを信用して返す。
+// 工具残寿命の計算結果そのものは固定Fixtureを返す。
 ```
 
 - [ ] **手順5: 冗長コメントと英語説明を除去・翻訳する**
@@ -1245,17 +1284,30 @@ Select-String -Path $files -Pattern "//\s*(Arrange|Act|Assert)|//\s*[A-Za-z].*" 
 
 識別子だけの行を除き、説明文が英語のコメントは日本語へ変更する。コードを逐語説明するだけのコメントは削除する。
 
-- [ ] **手順6: 検査と全テストを実行する**
+- [ ] **手順6: 検査、ビルド、全テストを実行する**
 
 ```powershell
+$files = @(
+  "src/ShelfManager.Infrastructure.Fake/include/ShelfManager/Infrastructure/Fake/FakeMachineGateway.h",
+  "src/ShelfManager.Infrastructure.Fake/include/ShelfManager/Infrastructure/Fake/CsvScenarioLoader.h",
+  "tests/ShelfManager.Domain.Tests/QueuePriorityAdjustmentPolicyTests.cpp",
+  "tests/ShelfManager.Application.Tests/CheckAndAdjustQueuePriorityUseCaseTests.cpp",
+  "tests/ShelfManager.Infrastructure.Com.Tests/ComQueuePriorityCheckGatewayTests.cpp",
+  "tests/ShelfManager.Infrastructure.Com.Tests/FileBackedQueuePriorityCheckApiTests.cpp"
+)
 pwsh -NoProfile -File ./tools/check-comment-policy.ps1 -Path $files
+$msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+  -latest -products * -requires Microsoft.Component.MSBuild `
+  -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+& $msbuild mfcapp.slnx /m /nologo /p:Configuration=Debug /p:Platform=x64
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ./out/x64/Debug/ShelfManager.Domain.Tests.exe
 ./out/x64/Debug/ShelfManager.Application.Tests.exe
 ./out/x64/Debug/ShelfManager.Infrastructure.Com.Tests.exe
 ./out/x64/Debug/ShelfManager.Presentation.Tests.exe
 ```
 
-期待結果: コメント検査成功、4テスト実行ファイルがすべて成功。
+期待結果: コメント検査成功、ビルド成功、4テスト実行ファイルがすべて成功。
 
 - [ ] **手順7: コミットする**
 
@@ -1271,7 +1323,7 @@ git commit -m "docs: clarify fake and regression-test intent"
 **対象ファイル:**
 
 - 変更: `docs/development/comment-policy.md`
-- 変更: `.github/workflows/build.yml`（必要な場合のみ診断Artifact名を最終確認）
+- 変更: `.github/workflows/build.yml`（診断Artifactの最終確認で必要な場合のみ）
 
 **インターフェイス:**
 
@@ -1280,32 +1332,23 @@ git commit -m "docs: clarify fake and regression-test intent"
 
 - [ ] **手順1: Policy文書へ実装済みコマンドを追記する**
 
-CI節へ次を追記する。
+CI節へ、次の内容を通常のMarkdown本文と個別のPowerShell Code Fenceで追記する。
 
-```markdown
-### 実装コマンド
+```text
+実装コマンド
 
 PR差分を検査する:
-
-```powershell
 ./tools/check-comment-policy.ps1 -BaseRef <base-sha> -HeadRef <head-sha>
-```
 
 指定ファイルを検査する:
-
-```powershell
 ./tools/check-comment-policy.ps1 -Path src/Foo.cpp,tests/FooTests.cpp
-```
 
 全件監査はローカル確認に使用できるが、CIのマージ条件へ切り替えるのは
-17.3の移行条件を満たした後とする。
-
-```powershell
+17.3の移行条件を満たした後とする:
 ./tools/check-comment-policy.ps1 -All
 ```
-```
 
-Markdown内の入れ子Code Fenceは、実ファイルでは外側を4個のbacktickにして正しく閉じる。
+実ファイルでは各コマンドを`powershell` Code Fenceへ分け、Code Fenceを入れ子にしない。
 
 - [ ] **手順2: 導入完了条件を実績に合わせて更新する**
 
@@ -1323,7 +1366,12 @@ Markdown内の入れ子Code Fenceは、実ファイルでは外側を4個のback
 [x] コメントの意味は人手レビューで確認すると明記されている
 ```
 
-「本ポリシーに基づく実装は別計画」とする末尾文は、今回の計画と実装済みPathを参照する文章へ更新する。
+末尾の「実装は別計画」とする文章を、次へ置換する。
+
+```text
+初期導入は`docs/superpowers/plans/2026-07-24-comment-policy-rollout.md`に基づき実装した。
+リポジトリ全体をマージ条件とする全件検査への切替は、17.3の条件を満たした後に別PRで行う。
+```
 
 - [ ] **手順3: 差分全体へ軽量検査を実行する**
 
@@ -1400,6 +1448,8 @@ git add docs/development/comment-policy.md .github/workflows/build.yml
 git commit -m "docs: record comment policy rollout status"
 ```
 
+`.github/workflows/build.yml`に追加修正が不要な場合は、`git add`の対象から除外する。
+
 ---
 
 ## 要求トレーサビリティ
@@ -1409,8 +1459,8 @@ git commit -m "docs: record comment policy rollout status"
 | 日本語標準、識別子は原表記 | 5～8 | 高リスクコメント、Policy更新 |
 | Public APIの必要情報 | 5、6、7 | Headerレビュー、全構成Build |
 | `WHY`／`THREAD`／`SAFETY`／`SOURCE` | 5～7 | コメント差分、人手レビュー |
-| `TODO`のIssue番号・完了条件 | 2、3、4 | PowerShell Test、CI report |
-| `FIXME`のIssue・影響・安全策・完了条件 | 2、3、4 | PowerShell Test、CI report |
+| `TODO`のIssue番号・完了条件 | 2～4 | PowerShell Test、CI report |
+| `FIXME`のIssue・影響・安全策・完了条件 | 2～4 | PowerShell Test、CI report |
 | `#if 0`・無効化コードの抑止 | 3、4 | PowerShell Test、CI report |
 | テストコメントの限定利用 | 7 | Test diff、人手レビュー |
 | コードとコメントの同時保守 | 4、8 | PR template、Policy checklist |
@@ -1425,24 +1475,28 @@ git commit -m "docs: record comment policy rollout status"
 2. `tests/tools/CommentPolicyCheck.Tests.ps1`が終了コード0となる。
 3. PR差分の変更ファイル全体に対する`check-comment-policy.ps1`が成功する。
 4. 課題番号なし`TODO`／`FIXME`、必要情報不足、`#if 0`、明らかな無効化コードをテストで検出できる。
-5. 正当な短期無効化例外を誤検出しない。
-6. `.github/pull_request_template.md`がブロッキング観点を要約している。
-7. GitHub ActionsがPowerShell Test、コメント検査、C++17検査、Build、GoogleTestを順に実行する。
-8. COM／BSTR／JSON境界の所有権、未確定契約、再現範囲が日本語で明確である。
-9. 加工可否Use Case、Command Port、State Readerの成功保証とFail Closed条件が明確である。
-10. MonitoringWorkerのStart／Stop、join、依存寿命が明確である。
-11. Fake／Mockが再現するものと再現しないものが明確である。
-12. テストコメントが逐語説明ではなく境界・安全・契約を補足している。
-13. コメント整備による製品動作変更がない。
-14. Debug／Release × Win32／x64が警告0でビルドできる。
-15. 4種類のテスト実行ファイルが全構成で成功する。
-16. `git diff --check`が成功する。
+5. 文字列リテラル中の`TODO`／`FIXME`を誤検出しない。
+6. 正当な短期無効化例外を誤検出しない。
+7. `.github/pull_request_template.md`がブロッキング観点を要約している。
+8. GitHub ActionsがPowerShell Test、コメント検査、C++17検査、Build、GoogleTestを順に実行する。
+9. COM／BSTR／JSON境界の所有権、未確定契約、再現範囲が日本語で明確である。
+10. 加工可否Use Case、Command Port、State Readerの成功保証とFail Closed条件が明確である。
+11. MonitoringWorkerのStart／Stop、join、依存寿命が明確である。
+12. Fake／Mockが再現するものと再現しないものが明確である。
+13. テストコメントが逐語説明ではなく境界・安全・契約を補足している。
+14. コメント整備による製品動作変更がない。
+15. Debug／Release × Win32／x64が警告0でビルドできる。
+16. 4種類のテスト実行ファイルが全構成で成功する。
+17. `git diff --check`が成功する。
 
 ## 計画セルフレビュー
 
-- ポリシーの目的、適用範囲、タグ、Public API、`TODO`／`FIXME`、無効化コード、テスト、レビュー、CI、段階導入を各タスクへ対応付けた。
-- 新しい型名、関数名、Script Parameterはタスク間で統一した。
+- ポリシーの目的、適用範囲、タグ、Public API、課題コメント、無効化コード、テスト、レビュー、CI、段階導入を各タスクへ対応付けた。
+- 新しい関数名、Script Parameter、Rule名をタスク間で統一した。
+- `.psm1`を自社管理Scriptとして検査対象へ含めた。
+- 課題TokenはコメントMarkerに続く場合だけ検出し、検査実装自身の文字列を誤検出しない設計とした。
+- CLI失敗テストは子`pwsh` Processで実行し、Test Runner自体が終了しないようにした。
 - 全ファイル検査はまだCI必須にせず、承認済みの段階導入方針を維持した。
 - コメント意味の自動判定やコメント数ノルマを導入していない。
 - 製品動作変更をコメント整備へ混在させない完了条件を追加した。
-- 未記入、`TBD`、実装者判断へ丸投げする手順は残していない。
+- 未記入や実装者判断へ丸投げする手順は残していない。
