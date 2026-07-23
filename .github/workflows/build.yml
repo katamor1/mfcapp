@@ -37,7 +37,14 @@ jobs:
 
       - name: Test comment policy checker
         shell: pwsh
-        run: ./tests/tools/CommentPolicyCheck.Tests.ps1
+        run: |
+          try {
+            ./tests/tools/CommentPolicyCheck.Tests.ps1 *>&1 |
+              Tee-Object -FilePath comment-policy-test.log
+          } catch {
+            $_ | Out-String | Tee-Object -FilePath comment-policy-test.log -Append
+            throw
+          }
 
       - name: Enforce comment policy
         shell: pwsh
@@ -93,6 +100,7 @@ jobs:
           name: msbuild-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}
           path: |
             cpp17-violations.txt
+            comment-policy-test.log
             comment-policy-violations.txt
             msbuild-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}.log
             msbuild-tail-${{ matrix.configuration }}-${{ matrix.target.solution_platform }}.log
