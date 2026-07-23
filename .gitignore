@@ -10,3 +10,4 @@ vcpkg_installed/
 *.VC.VC.opendb
 .worktrees/
 .superpowers/
+*.log

@@ -6,6 +6,26 @@
     <ShelfManagerUseMfc>true</ShelfManagerUseMfc>
     <ShelfManagerUsePch>true</ShelfManagerUsePch>
   </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <ProjectGuid>{2BBDF1FB-5960-BBC8-09CF-C65FC0005273}</ProjectGuid>
@@ -23,9 +43,15 @@
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
   </ItemGroup>
-  <ItemGroup><ResourceCompile Include="mfcapp.rc" /></ItemGroup>
-  <ItemGroup><None Include="res\mfcapp.rc2" /></ItemGroup>
-  <ItemGroup><Image Include="res\mfcapp.ico" /></ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="mfcapp.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="res\mfcapp.rc2" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="res\mfcapp.ico" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\src\ShelfManager.Domain\ShelfManager.Domain.vcxproj">
       <Project>{83E8ED31-DA96-5A28-B949-D4445C740E5A}</Project>

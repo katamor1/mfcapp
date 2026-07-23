@@ -3,14 +3,14 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="src/ShelfManager.Domain/ShelfManager.Domain.vcxproj" />
-  <Project Path="src/ShelfManager.Application/ShelfManager.Application.vcxproj" />
-  <Project Path="src/ShelfManager.Infrastructure.Fake/ShelfManager.Infrastructure.Fake.vcxproj" />
-  <Project Path="src/ShelfManager.Infrastructure.Com/ShelfManager.Infrastructure.Com.vcxproj" />
-  <Project Path="src/ShelfManager.Presentation.Core/ShelfManager.Presentation.Core.vcxproj" />
   <Project Path="mfcapp/mfcapp.vcxproj" />
-  <Project Path="tests/ShelfManager.Domain.Tests/ShelfManager.Domain.Tests.vcxproj" />
-  <Project Path="tests/ShelfManager.Application.Tests/ShelfManager.Application.Tests.vcxproj" />
-  <Project Path="tests/ShelfManager.Infrastructure.Com.Tests/ShelfManager.Infrastructure.Com.Tests.vcxproj" />
-  <Project Path="tests/ShelfManager.Presentation.Tests/ShelfManager.Presentation.Tests.vcxproj" />
+  <Project Path="src/ShelfManager.Application/ShelfManager.Application.vcxproj" Id="355fb690-a169-5023-b09d-c7e9004d1879" />
+  <Project Path="src/ShelfManager.Domain/ShelfManager.Domain.vcxproj" Id="83e8ed31-da96-5a28-b949-d4445c740e5a" />
+  <Project Path="src/ShelfManager.Infrastructure.Com/ShelfManager.Infrastructure.Com.vcxproj" Id="54c32aef-6cc7-5c84-88ba-f2d986447ebf" />
+  <Project Path="src/ShelfManager.Infrastructure.Fake/ShelfManager.Infrastructure.Fake.vcxproj" Id="a22aa9f9-170c-5afa-9510-b0feb4481200" />
+  <Project Path="src/ShelfManager.Presentation.Core/ShelfManager.Presentation.Core.vcxproj" Id="fac8344b-3c79-5d1b-bf0f-f542ff44c36e" />
+  <Project Path="tests/ShelfManager.Application.Tests/ShelfManager.Application.Tests.vcxproj" Id="881489b5-8568-5be9-ab84-6fd881179287" />
+  <Project Path="tests/ShelfManager.Domain.Tests/ShelfManager.Domain.Tests.vcxproj" Id="821e6a9c-e526-5545-8701-ddc01daab7ae" />
+  <Project Path="tests/ShelfManager.Infrastructure.Com.Tests/ShelfManager.Infrastructure.Com.Tests.vcxproj" Id="92a8f571-9d1e-5940-a429-22fb04420b63" />
+  <Project Path="tests/ShelfManager.Presentation.Tests/ShelfManager.Presentation.Tests.vcxproj" Id="6528403b-e559-5091-8880-8838c375344d" />
 </Solution>
