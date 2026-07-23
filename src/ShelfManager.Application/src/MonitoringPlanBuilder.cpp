@@ -20,8 +20,8 @@ std::vector<MonitoringRequest> MonitoringPlanBuilder::Due(
                 return;
             }
             state.inFlight = true;
-            // WHY: Late cycles are coalesced. We schedule from "now" rather
-            // than replaying every missed period.
+            // WHY: 遅延した周期をすべて再生すると読取要求が滞留するため、
+            // 現在時刻から次周期を再設定し、最新状態の一回取得へ集約する。
             state.nextDue = now + state.period;
             requests.push_back(MonitoringRequest{type, std::nullopt});
         };
