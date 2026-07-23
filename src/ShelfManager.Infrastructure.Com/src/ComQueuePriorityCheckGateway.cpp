@@ -169,7 +169,7 @@ Result<QueuePriorityCheckResponse> ComQueuePriorityCheckGateway::Check(
             wideInput.ErrorValue());
     }
     if (wideInput.Value().size() >
-        static_cast<std::size_t>(std::numeric_limits<UINT>::max())) {
+        static_cast<std::size_t>((std::numeric_limits<UINT>::max)())) {
         return Failure<QueuePriorityCheckResponse>(
             ErrorCode::InvalidArgument,
             "Queue-priority JSON input exceeds BSTR length limits.");
