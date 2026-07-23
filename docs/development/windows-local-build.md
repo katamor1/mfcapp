@@ -66,7 +66,7 @@ $env:PATH = "$env:VCPKG_ROOT;$env:PATH"
 
 ## 5. プロジェクト側の固定設定
 
-テストプロジェクトでは次を明示する。
+すべてのプロジェクトで次を明示する。これにより、GoogleTestを使うテストプロジェクトだけでなく、`nlohmann-json`を使うCOM Infrastructureも同じmanifest設定を利用する。
 
 - `VcpkgEnabled=true`
 - `VcpkgEnableManifest=true`
