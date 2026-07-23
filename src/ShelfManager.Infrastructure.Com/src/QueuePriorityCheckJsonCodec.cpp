@@ -91,7 +91,7 @@ Result<std::string> ReadString(
         return Failure<std::string>(
             ErrorCode::InvalidResponse,
             std::string("Queue-priority JSON field '") + name +
-                "' must be a string.");
+            "' must be a string.");
     }
     return Result<std::string>::Success(object.at(name).get<std::string>());
 }
@@ -199,6 +199,8 @@ Result<std::string> QueuePriorityCheckJsonCodec::Serialize(
             for (const auto& instruction : workpiece.instructions) {
                 Json toolArray = Json::array();
                 for (const auto& tool : instruction.tools) {
+                    // SOURCE: 外部契約のフィールド名はToolidである。
+                    // ToolIdへ正規化すると契約が変わるため原表記を維持する。
                     toolArray.push_back(Json{
                         {"Toolid", tool.toolId},
                         {"UsageTime", tool.usageTime}});
