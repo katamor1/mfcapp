@@ -1,41 +1,41 @@
-# C++17 Constraint Plan Amendment
+# C++17制約に関する計画追補
 
-> This amendment is authoritative where it conflicts with `2026-07-23-shelf-manager-mvp-foundation-fake-vertical-slice.md` or the CSV mock amendment.
+> 本追補は、`2026-07-23-shelf-manager-mvp-foundation-fake-vertical-slice.md`またはCSVモック追補と内容が競合する場合に優先する。
 
-**Decision source:** Product owner instruction on 2026-07-24.
+**決定根拠:** 2026-07-24のプロダクトオーナー指示。
 
-## Changed assumptions
+## 前提の変更
 
-- The complete solution is constrained to C++17.
-- C++20 language and library features are not permitted in production code, test code, adapters, or MFC code.
-- The architecture and CSV/COM replacement boundary remain unchanged.
+- ソリューション全体をC++17に固定する。
+- 製品コード、テストコード、各アダプター、MFCコードのいずれにも、C++20の言語機能または標準ライブラリ機能を使用しない。
+- アーキテクチャおよびCSV／COMの差し替え境界は変更しない。
 
-## Required implementation changes
+## 必須となる実装変更
 
-- Set the shared MSBuild language standard to `stdcpp17`.
-- Add `/Zc:__cplusplus` and a compile-time test requiring the C++17 language level.
-- Replace defaulted C++20 equality and `<=>` operators with explicit comparisons.
-- Replace `std::jthread`/`std::stop_token` with `std::thread`, an atomic stop flag, and explicit join.
-- Replace `std::atomic<std::shared_ptr<const MachineSnapshot>>` with C++17 `std::atomic_load` and `std::atomic_compare_exchange` free functions operating on a `std::shared_ptr` object.
-- Keep the provisional ID catalog and CSV-backed adapter behind `IMachineStateReader` and `IMachineCommandGateway`.
+- 共通MSBuild設定の言語標準を`stdcpp17`に変更する。
+- `/Zc:__cplusplus`を追加し、コンパイル時にC++17であることを確認するテストを設ける。
+- C++20のdefaulted比較演算子および`<=>`を、C++17で使用できる明示的な比較演算子へ置き換える。
+- `std::jthread`および`std::stop_token`を、`std::thread`、atomicな停止フラグ、明示的な`join`へ置き換える。
+- `std::atomic<std::shared_ptr<const MachineSnapshot>>`を、`std::shared_ptr`に対するC++17の`std::atomic_load`および`std::atomic_compare_exchange`自由関数へ置き換える。
+- 暫定IDカタログとCSVアダプターは、引き続き`IMachineStateReader`および`IMachineCommandGateway`の背後に置く。
 
-## Amendments to later tasks
+## 後続タスクへの追補
 
-### Task 9 and later MFC work
+### タスク9以降のMFC実装
 
-All new MFC shell, routing, view, and composition-root code must compile under C++17. No task may introduce a per-file C++20 override.
+新たに追加するMFC Shell、画面ルーティング、View、Composition RootのすべてをC++17でビルドできるようにする。ファイル単位でC++20へ上書きする設定は認めない。
 
-### Task 11 operation executor
+### タスク11の操作実行基盤
 
-Use `std::thread`, condition variables, atomics, and explicit lifecycle management instead of `std::jthread` or stop tokens.
+`std::jthread`やstop tokenは使用せず、`std::thread`、条件変数、atomic変数、および明示的なライフサイクル管理を使用する。
 
-### Task 13 COM adapter
+### タスク13のCOMアダプター
 
-The real COM adapter, STA executor, catalog, and codecs must expose the existing Application ports and must compile as C++17. The adapter swap must not require a language-level change in Domain, Application, or Presentation.
+実COMアダプター、STA Executor、カタログ、Codecは、既存のApplication Portを公開し、C++17でビルドする。アダプターの差し替えによってDomain、Application、Presentationの言語レベルを変更してはならない。
 
-## Acceptance additions
+## 受入条件への追加
 
-- `_MSVC_LANG` or `__cplusplus` is exactly `201703L` in the shared bootstrap test.
-- Debug/Release × Win32/x64 build and test successfully with `/std:c++17`.
-- No source file contains `<=>`, `std::jthread`, `std::stop_token`, or `std::atomic<std::shared_ptr`.
-- No project or source file overrides the shared setting with C++20 or later.
+- 共通Bootstrap Testにおいて、`_MSVC_LANG`または`__cplusplus`が厳密に`201703L`である。
+- `/std:c++17`でDebug/Release × Win32/x64の全構成がビルドされ、テストが成功する。
+- ソースファイルに`<=>`、`std::jthread`、`std::stop_token`、`std::atomic<std::shared_ptr`が存在しない。
+- プロジェクトまたは個別ソースファイルが、共通設定をC++20以降へ上書きしていない。
