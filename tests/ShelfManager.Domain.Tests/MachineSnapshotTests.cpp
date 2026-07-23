@@ -20,20 +20,23 @@ TEST(MachineSnapshotTests, RepresentsOneConsistentImmutableReadModel) {
     const MachineSnapshot snapshot{
         SnapshotVersion(7U),
         capturedAt,
-        {MachineConnectionState::Connected,
-         MachineMode::Manual,
-         false,
-         false,
-         "normal"},
+        MachineHealth{MachineConnectionState::Connected,
+                      MachineMode::Manual,
+                      false,
+                      false,
+                      "normal"},
         layout.Value(),
-        {{{1U, 1U}, workpieceId}},
-        {{workpieceId,
-          RackSlot{1U, 1U},
-          priority.Value(),
-          WorkpieceStatus::WaitingForMachining,
-          MachiningInstructionName("first.nc")}},
-        {{{RackSlot{1U, 2U}}, DestinationAvailability::Available}},
-        {DataFreshnessState::Fresh, capturedAt, std::nullopt}};
+        RackState{{RackOccupancy{RackSlot{1U, 1U}, workpieceId}}},
+        std::vector<WorkpieceSummary>{
+            WorkpieceSummary{workpieceId,
+                             RackSlot{1U, 1U},
+                             priority.Value(),
+                             WorkpieceStatus::WaitingForMachining,
+                             MachiningInstructionName("first.nc")}},
+        std::vector<DestinationState>{
+            DestinationState{TransportDestination{RackSlot{1U, 2U}},
+                             DestinationAvailability::Available}},
+        DataFreshness{DataFreshnessState::Fresh, capturedAt, std::nullopt}};
 
     EXPECT_EQ(7U, snapshot.version.Value());
     EXPECT_EQ(workpieceId, snapshot.workpieces.front().id);
