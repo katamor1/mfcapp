@@ -164,7 +164,89 @@ function Invoke-TaskMarkerTests {
     }
 }
 
+function Invoke-DisabledCodeAndTagTests {
+    $root = New-TestRepository
+    try {
+        $ifZero = "#if " + "0"
+        Write-PolicyCase $root "src/IfZero.cpp" @($ifZero, "legacy();", "#endif")
+        $violations = @(Test-CommentPolicyFile $root "src/IfZero.cpp")
+        Assert-True ($violations.Rule -contains "DISABLED_IF_ZERO") `
+            "disabled preprocessor block must fail"
+
+        Write-PolicyCase $root "src/CommentedCode.cpp" @(
+            "// return Result<void>::Success();"
+        )
+        $violations = @(Test-CommentPolicyFile $root "src/CommentedCode.cpp")
+        Assert-True ($violations.Rule -contains "COMMENTED_CODE") `
+            "commented code must fail"
+
+        Write-PolicyCase $root "src/TemporaryDisabled.cpp" @(
+            "// 一時無効化(#432): 実機比較調査のため。",
+            "// 現在の実行経路: ReconnectCoordinator::Execute。",
+            "// 削除条件: #432完了時に旧実装と本コメントを削除する。",
+            "// legacyReconnect();"
+        )
+        Assert-Equal 0 @(Test-CommentPolicyFile $root "src/TemporaryDisabled.cpp").Count `
+            "documented temporary disabled code must pass"
+
+        Write-PolicyCase $root "src/TagTypo.cpp" @(
+            "// SAFTY: 応答不明時は搬送しない。"
+        )
+        $violations = @(Test-CommentPolicyFile $root "src/TagTypo.cpp")
+        Assert-True ($violations.Rule -contains "COMMENT_TAG_TYPO") `
+            "known tag typo must fail"
+
+        Write-PolicyCase $root "src/InlineTagTypo.cpp" @(
+            "DoWork(); // THRAED: 専用threadで実行する。"
+        )
+        $violations = @(Test-CommentPolicyFile $root "src/InlineTagTypo.cpp")
+        Assert-True ($violations.Rule -contains "COMMENT_TAG_TYPO") `
+            "inline tag typo must fail"
+
+        Write-PolicyCase $root "src/LowerTag.cpp" @(
+            "// safety: 応答不明時は搬送しない。"
+        )
+        $violations = @(Test-CommentPolicyFile $root "src/LowerTag.cpp")
+        Assert-True ($violations.Rule -contains "COMMENT_TAG_CASE") `
+            "lowercase standard tag must fail"
+
+        Write-PolicyCase $root "src/Prose.cpp" @(
+            "// 搬送要求は状態読戻し後に完了判定する。"
+        )
+        Assert-Equal 0 @(Test-CommentPolicyFile $root "src/Prose.cpp").Count `
+            "ordinary prose must pass"
+    }
+    finally {
+        Remove-Item $root -Recurse -Force
+    }
+}
+
+function Invoke-CliReportTest {
+    $root = New-TestRepository
+    try {
+        $todo = "TO" + "DO"
+        Write-PolicyCase $root "src/Invalid.cpp" @("// ${todo}: later")
+        $report = Join-Path $root "violations.txt"
+        $cli = Join-Path $PSScriptRoot "..\..\tools\check-comment-policy.ps1"
+
+        & pwsh -NoProfile -File $cli `
+            -RepoRoot $root -Path "src/Invalid.cpp" -ReportPath $report
+        $exitCode = $LASTEXITCODE
+
+        Assert-True ($exitCode -ne 0) "CLI must fail for violations"
+        Assert-True (Test-Path $report) "CLI must write report"
+        $reportText = Get-Content $report -Raw
+        Assert-True ($reportText -match "TODO_ISSUE") `
+            "CLI report must contain the violated rule"
+    }
+    finally {
+        Remove-Item $root -Recurse -Force
+    }
+}
+
 Invoke-PathFilteringTest
 Invoke-ChangedFileSelectionTest
 Invoke-TaskMarkerTests
+Invoke-DisabledCodeAndTagTests
+Invoke-CliReportTest
 Write-Host "Comment policy tests passed."
