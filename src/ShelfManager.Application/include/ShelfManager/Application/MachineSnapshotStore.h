@@ -19,8 +19,8 @@ public:
     Current() const noexcept;
 
 private:
-    // C++17 provides atomic shared_ptr operations as free functions rather
-    // than as std::atomic<std::shared_ptr<T>>.
+    // C++17 provides atomic operations for shared pointers through free
+    // functions rather than a dedicated atomic wrapper type.
     std::shared_ptr<const ShelfManager::Domain::MachineSnapshot> latest_;
 };
 
