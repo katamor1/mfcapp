@@ -1,0 +1,81 @@
+name: build
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.configuration }} ${{ matrix.target.solution_platform }}
+    runs-on: windows-2025-vs2026
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration:
+          - Debug
+          - Release
+        target:
+          - solution_platform: x64
+            project_platform: x64
+            triplet: x64-windows-static-md
+          - solution_platform: x86
+            project_platform: Win32
+            triplet: x86-windows-static-md
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Restore vcpkg dependencies
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet "${{ matrix.target.triplet }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:VCPKG_ROOT\vcpkg.exe" integrate install
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Locate MSBuild
+        id: msbuild
+        shell: pwsh
+        run: |
+          $msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+            -latest -products * -requires Microsoft.Component.MSBuild `
+            -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          if (-not $msbuild) {
+            throw "MSBuild was not found."
+          }
+          "path=$msbuild" >> $env:GITHUB_OUTPUT
+
+      - name: Build
+        shell: pwsh
+        run: |
+          & "${{ steps.msbuild.outputs.path }}" mfcapp.slnx /m `
+            /p:Configuration="${{ matrix.configuration }}" `
+            /p:Platform="${{ matrix.target.solution_platform }}" `
+            /p:VcpkgEnableManifest=true `
+            /p:VcpkgTriplet="${{ matrix.target.triplet }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          $testDirectory = Join-Path $PWD "out\${{ matrix.target.project_platform }}\${{ matrix.configuration }}"
+          $tests = @(
+            "ShelfManager.Domain.Tests.exe",
+            "ShelfManager.Application.Tests.exe",
+            "ShelfManager.Infrastructure.Com.Tests.exe",
+            "ShelfManager.Presentation.Tests.exe"
+          )
+          foreach ($test in $tests) {
+            $path = Join-Path $testDirectory $test
+            if (-not (Test-Path $path)) {
+              throw "Missing test executable: $path"
+            }
+            & $path
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ShelfManagerConfigurationType>Application</ShelfManagerConfigurationType>
+    <ShelfManagerIncludeDirectories>$(MSBuildThisFileDirectory)..\..\src\ShelfManager.Presentation.Core\include;$(MSBuildThisFileDirectory)..\..\src\ShelfManager.Application\include;$(MSBuildThisFileDirectory)..\..\src\ShelfManager.Domain\include</ShelfManagerIncludeDirectories>
+    <ShelfManagerIsTest>true</ShelfManagerIsTest>
+  </PropertyGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <ProjectGuid>{6528403B-E559-5091-8880-8838C375344D}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>ShelfManagerPresentationTests</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="..\..\build\ShelfManager.NativeProject.props" />
+  <ItemGroup>
+    <ClCompile Include="..\ShelfManager.Domain.Tests\BuildBootstrapTests.cpp" />
+    <ClCompile Include="*.cpp" Exclude="BuildBootstrapTests.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ShelfManager.Presentation.Core\ShelfManager.Presentation.Core.vcxproj">
+      <Project>{FAC8344B-3C79-5D1B-BF0F-F542FF44C36E}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\ShelfManager.Application\ShelfManager.Application.vcxproj">
+      <Project>{355FB690-A169-5023-B09D-C7E9004D1879}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\ShelfManager.Domain\ShelfManager.Domain.vcxproj">
+      <Project>{83E8ED31-DA96-5A28-B949-D4445C740E5A}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>

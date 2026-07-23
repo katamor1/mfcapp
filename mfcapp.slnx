@@ -3,5 +3,14 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
+  <Project Path="src/ShelfManager.Domain/ShelfManager.Domain.vcxproj" />
+  <Project Path="src/ShelfManager.Application/ShelfManager.Application.vcxproj" />
+  <Project Path="src/ShelfManager.Infrastructure.Fake/ShelfManager.Infrastructure.Fake.vcxproj" />
+  <Project Path="src/ShelfManager.Infrastructure.Com/ShelfManager.Infrastructure.Com.vcxproj" />
+  <Project Path="src/ShelfManager.Presentation.Core/ShelfManager.Presentation.Core.vcxproj" />
   <Project Path="mfcapp/mfcapp.vcxproj" />
+  <Project Path="tests/ShelfManager.Domain.Tests/ShelfManager.Domain.Tests.vcxproj" />
+  <Project Path="tests/ShelfManager.Application.Tests/ShelfManager.Application.Tests.vcxproj" />
+  <Project Path="tests/ShelfManager.Infrastructure.Com.Tests/ShelfManager.Infrastructure.Com.Tests.vcxproj" />
+  <Project Path="tests/ShelfManager.Presentation.Tests/ShelfManager.Presentation.Tests.vcxproj" />
 </Solution>

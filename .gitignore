@@ -1,0 +1,12 @@
+.vs/
+out/
+obj/
+vcpkg_installed/
+*.user
+*.aps
+*.ncb
+*.suo
+*.VC.db
+*.VC.VC.opendb
+.worktrees/
+.superpowers/

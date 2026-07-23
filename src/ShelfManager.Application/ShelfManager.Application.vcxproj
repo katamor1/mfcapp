@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ShelfManagerConfigurationType>StaticLibrary</ShelfManagerConfigurationType>
+    <ShelfManagerIncludeDirectories>$(MSBuildThisFileDirectory)include;$(MSBuildThisFileDirectory)..\ShelfManager.Domain\include</ShelfManagerIncludeDirectories>
+  </PropertyGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <ProjectGuid>{355FB690-A169-5023-B09D-C7E9004D1879}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>ShelfManagerApplication</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="..\..\build\ShelfManager.NativeProject.props" />
+  <ItemGroup>
+    <ClCompile Include="src\**\*.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ShelfManager.Domain\ShelfManager.Domain.vcxproj">
+      <Project>{83E8ED31-DA96-5A28-B949-D4445C740E5A}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>
