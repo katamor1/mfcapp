@@ -9,10 +9,11 @@
 
 namespace ShelfManager::Infrastructure::Fake {
 
-// Loads time-indexed mock responses that use the same dataId/subId addressing
-// model as the future COM adapter. The produced FakeScenario is consumed
-// through IMachineStateReader and IMachineCommandGateway, so replacing CSV
-// with COM does not affect Application or Presentation code.
+// 暫定dataIdを使用するCSV応答をFakeScenarioへ変換する開発用Loader。
+// CSVは正式COM契約ではなく、未知値、必須値欠落、重複、範囲外を
+// InvalidResponseとして拒否し、不完全なScenarioを返さない。
+// 生成したScenarioはApplication Portを介して使用するため、
+// CSVからCOMへ差し替えてもApplication／Presentationは変更しない。
 class CsvScenarioLoader final {
 public:
     [[nodiscard]] static ShelfManager::Domain::Result<FakeScenario> Load(
