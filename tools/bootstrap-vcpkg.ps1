@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateSet("all", "x86", "x64")]
     [string]$Platform = "all"
