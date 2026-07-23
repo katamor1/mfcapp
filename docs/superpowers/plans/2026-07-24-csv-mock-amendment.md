@@ -1,50 +1,50 @@
-# CSV Mock and Provisional ID Plan Amendment
+# CSVモックおよび暫定IDに関する計画追補
 
-> This amendment is authoritative where it conflicts with `2026-07-23-shelf-manager-mvp-foundation-fake-vertical-slice.md`.
+> 本追補は、`2026-07-23-shelf-manager-mvp-foundation-fake-vertical-slice.md`と内容が競合する場合に優先する。
 
-**Decision source:** Product owner instruction on 2026-07-24.
+**決定根拠:** 2026-07-24のプロダクトオーナー指示。
 
-## Changed assumptions
+## 前提の変更
 
-- Vendor COM IDs will be assigned later.
-- Development uses provisional IDs numbered sequentially from 1.
-- Mock machine responses come from CSV.
-- CSV and the future COM adapter are selected behind `IMachineStateReader` and `IMachineCommandGateway`.
-- The earlier restriction that only `dataId=12` may be registered is superseded for the mock environment. It remains true that no provisional number is a production vendor contract.
+- ベンダーが定める正式なCOMデータIDは後日割り当てる。
+- 開発中は、1から欠番なく連続する暫定IDを使用する。
+- 機械応答のモックデータはCSVから読み込む。
+- CSVアダプターと将来のCOMアダプターは、`IMachineStateReader`および`IMachineCommandGateway`の背後で切り替える。
+- モック環境では、従来の「`dataId=12`だけを登録する」という制約を適用しない。ただし、暫定IDはいずれも本番用のベンダー契約ではない。
 
-## Implementation changes
+## 実装上の変更
 
-### Completed now
+### 現時点で完了している内容
 
-- Add `ProvisionalDataIds.h` as the only numeric ID catalog.
-- Add `CsvScenarioLoader`, parsing `at_ms,data_id,sub_id1,sub_id2,value`.
-- Add `config/mock/machine-responses.csv`.
-- Convert CSV responses into `FakeScenario` and continue using `FakeMachineGateway` through the existing Application ports.
-- Validate sequential IDs, time-based override behavior, CSV quoting, duplicate addresses, and missing required responses.
+- 数値IDを一元管理する唯一のカタログとして`ProvisionalDataIds.h`を追加する。
+- `at_ms,data_id,sub_id1,sub_id2,value`形式を解析する`CsvScenarioLoader`を追加する。
+- `config/mock/machine-responses.csv`を追加する。
+- CSV応答を`FakeScenario`へ変換し、既存のApplication Portを実装する`FakeMachineGateway`から公開する。
+- 暫定IDの連続性、時刻による値の上書き、CSVの引用符、同一アドレスの重複、および必須応答の欠落を検証する。
 
-### Task 9 amendment
+### タスク9への追補
 
-The composition root shall:
+Composition Rootは次のように実装する。
 
-1. Use `config/mock/machine-responses.csv` as the default development response source.
-2. Accept `--mock-csv=<path>` to select another scenario.
-3. Load the file with `CsvScenarioLoader::Load`.
-4. Construct `FakeMachineGateway` from the resulting `FakeScenario`.
-5. Display a clear startup error and disable operations if the CSV cannot be opened or validated.
-6. Keep `--fake` as an optional compatibility alias, but do not construct `FakeScenario::StandardDemo()` in normal application startup.
+1. 開発時の既定応答元として`config/mock/machine-responses.csv`を使用する。
+2. 別のシナリオを指定するため、`--mock-csv=<path>`を受け付ける。
+3. `CsvScenarioLoader::Load`でCSVを読み込む。
+4. 読み込んだ`FakeScenario`から`FakeMachineGateway`を構築する。
+5. CSVを開けない、または検証に失敗した場合は、起動エラーを明示し、変更操作を無効化する。
+6. `--fake`は互換用の別名として残してよいが、通常起動では`FakeScenario::StandardDemo()`を直接構築しない。
 
-### Task 13 amendment
+### タスク13への追補
 
-- Introduce the real COM adapter as another implementation of the same Application ports.
-- Move vendor-assigned IDs into a production catalog when supplied.
-- Keep the provisional catalog for CSV fixtures and tests only.
-- Add adapter contract tests proving that logical fields map to the vendor IDs; do not change Domain, Application, Presenter, or View code.
+- 実COMアダプターは、既存のApplication Portを実装する別アダプターとして導入する。
+- ベンダーから正式IDを受領した時点で、本番用カタログへ割り当てを移す。
+- 暫定IDカタログは、CSVフィクスチャおよびテスト専用として残す。
+- 論理データ項目と正式IDの対応を証明するアダプター契約テストを追加する。この変更によってDomain、Application、Presenter、Viewのコードを変更してはならない。
 
-## Acceptance additions
+## 受入条件への追加
 
-- All provisional IDs used by the CSV fixture are declared once and are consecutive from 1.
-- No Domain/Application/Presentation file contains a provisional data ID literal.
-- A later CSV row overrides an earlier row with the same address.
-- The sample scenario reproduces waiting, machining, abnormal interruption, communication loss, and recovery.
-- Invalid CSV fails closed and cannot enable write operations.
-- Debug/Release × Win32/x64 build and test successfully.
+- CSVフィクスチャで使用する暫定IDは一か所で宣言し、1から連続している。
+- Domain、Application、Presentationのファイルに暫定IDの数値リテラルが存在しない。
+- 同じアドレスに対する後の時刻のCSV行が、それ以前の値を上書きする。
+- サンプルシナリオで、加工待ち、加工中、異常中断、通信断、通信復旧を再現できる。
+- 不正なCSVはFail Closedで失敗し、変更操作を有効化しない。
+- Debug/Release × Win32/x64の全構成でビルドとテストが成功する。
