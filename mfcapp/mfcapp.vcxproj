@@ -47,9 +47,6 @@
     <ResourceCompile Include="mfcapp.rc" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="res\mfcapp.rc2" />
-  </ItemGroup>
-  <ItemGroup>
     <Image Include="res\mfcapp.ico" />
   </ItemGroup>
   <ItemGroup>
