@@ -78,6 +78,32 @@ TEST(FakeMachineGatewayTests, ReplaysStandardScenarioAtExactBoundaries) {
               criticalRecovered.Value().freshness.state);
 }
 
+TEST(FakeMachineGatewayTests, OnDemandReturnsOnlyTheSelectedWorkpieceDetail) {
+    ManualClock clock;
+    FakeMachineGateway gateway(clock, FakeScenario::StandardDemo());
+
+    const auto detail = gateway.Read(
+        {MonitoringClass::OnDemand, WorkpieceId(2U)});
+
+    ASSERT_TRUE(detail.HasValue()) << detail.ErrorValue().message;
+    ASSERT_TRUE(detail.Value().workpieceDetail.has_value());
+    EXPECT_EQ(WorkpieceId(2U), detail.Value().workpieceDetail->id);
+    ASSERT_FALSE(
+        detail.Value().workpieceDetail->instructions.Instructions().empty());
+    EXPECT_FALSE(detail.Value().health.has_value());
+}
+
+TEST(FakeMachineGatewayTests, OnDemandRejectsUnknownWorkpiece) {
+    ManualClock clock;
+    FakeMachineGateway gateway(clock, FakeScenario::StandardDemo());
+
+    const auto detail = gateway.Read(
+        {MonitoringClass::OnDemand, WorkpieceId(999U)});
+
+    ASSERT_FALSE(detail.HasValue());
+    EXPECT_EQ(ErrorCode::NotFound, detail.ErrorValue().code);
+}
+
 TEST(FakeMachineGatewayTests, PriorityChangeIsAtomicAndChecksEveryExpectation) {
     ManualClock clock;
     FakeMachineGateway gateway(clock, FakeScenario::StandardDemo());
