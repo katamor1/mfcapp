@@ -11,11 +11,14 @@ void SnapshotMessageSink::OnSnapshotPublished(
     const ShelfManager::Domain::SnapshotVersion version,
     const ShelfManager::Application::SnapshotChangeFlag changeFlags) {
     if (!::IsWindow(targetWindow_)) {
+        // SAFETY: Window破棄後は通知先へ触れず、同期Callbackや別Windowへの転送も行わない。
         return;
     }
 
-    // VersionとFlagは再描画診断用のHintであり、正本判定には使用しない。
-    // Win32でもMessage値に収まるprocess内世代だけを通知し、ViewはStoreを再読取する。
+    // WHY: VersionとFlagは再描画診断用のHintに限定し、Message滞留中に新しい
+    // Snapshotが公開されても、UIはStoreの最新値へ一度で収束できるようにする。
+    // Win32でもMessage値に収まるprocess内世代だけを通知し、Snapshot本体の
+    // 所有権や寿命をWindow Messageへ持ち込まない。
     static_cast<void>(::PostMessageW(
         targetWindow_,
         WM_APP_SNAPSHOT_CHANGED,
