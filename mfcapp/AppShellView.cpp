@@ -4,13 +4,16 @@
 
 #include <algorithm>
 
+#include "OperationCompletionMessageSink.h"
+#include "ShelfManager/Application/IClock.h"
+#include "ShelfManager/Application/OperationStateStore.h"
 #include "ShelfManager/Presentation/MachineStatusPresenter.h"
+#include "ShelfManager/Presentation/MachiningQueuePresenter.h"
+#include "ShelfManager/Presentation/ManualTransportPresenter.h"
 #include "ShelfManager/Presentation/VisualRackPresenter.h"
 
 namespace {
 
-// MFC resource IDとは分離した、Shell内でのみ有効な動的Control ID。
-// Feature Control追加時も一意性をこの表で管理する。
 enum : UINT {
     kMachineStatusControlId = 41001U,
     kVisualRackButtonId = 41002U,
@@ -20,8 +23,9 @@ enum : UINT {
     kOperationOverlayControlId = 41006U
 };
 
-// Smoke Test用Timerは業務Timerと共有せず、Shell内で一回限りに使用する。
 constexpr UINT_PTR kSmokeExitTimerId = 1U;
+constexpr UINT_PTR kOperationOverlayTimerId = 2U;
+constexpr UINT kOperationOverlayPeriodMilliseconds = 50U;
 constexpr COLORREF kShellBackgroundColor = RGB(226, 232, 240);
 
 }  // namespace
@@ -37,6 +41,7 @@ BEGIN_MESSAGE_MAP(CAppShellView, CWnd)
     ON_COMMAND(kMachiningQueueButtonId, &CAppShellView::OnMachiningQueue)
     ON_COMMAND(kManualTransportButtonId, &CAppShellView::OnManualTransport)
     ON_MESSAGE(WM_APP_SNAPSHOT_CHANGED, &CAppShellView::OnSnapshotChanged)
+    ON_MESSAGE(WM_APP_OPERATION_COMPLETED, &CAppShellView::OnOperationCompleted)
     ON_MESSAGE(WM_DPICHANGED, &CAppShellView::OnDpiChanged)
 END_MESSAGE_MAP()
 
@@ -72,6 +77,14 @@ CVisualRackView& CAppShellView::VisualRackView() noexcept {
     return screenRouter_.VisualRackView();
 }
 
+CMachiningQueueView& CAppShellView::MachiningQueueView() noexcept {
+    return screenRouter_.MachiningQueueView();
+}
+
+CManualTransportView& CAppShellView::ManualTransportView() noexcept {
+    return screenRouter_.ManualTransportView();
+}
+
 ShelfManager::Presentation::UiStateStore& CAppShellView::UiState() noexcept {
     return uiState_;
 }
@@ -87,6 +100,39 @@ void CAppShellView::BindVisualRackPresenter(
     screenRouter_.VisualRackView().BindPresenter(presenter);
 }
 
+void CAppShellView::BindMachiningQueuePresenter(
+    ShelfManager::Presentation::MachiningQueuePresenter* presenter) noexcept {
+    machiningQueuePresenter_ = presenter;
+    screenRouter_.MachiningQueueView().BindPresenter(presenter);
+}
+
+void CAppShellView::BindManualTransportPresenter(
+    ShelfManager::Presentation::ManualTransportPresenter* presenter) noexcept {
+    manualTransportPresenter_ = presenter;
+    screenRouter_.ManualTransportView().BindPresenter(presenter);
+}
+
+void CAppShellView::BindOperationServices(
+    OperationCompletionMessageSink* completionSink,
+    ShelfManager::Application::OperationStateStore* operationStateStore,
+    ShelfManager::Application::IClock* clock) noexcept {
+    KillTimer(kOperationOverlayTimerId);
+    operationCompletionSink_ = completionSink;
+    operationStateStore_ = operationStateStore;
+    clock_ = clock;
+
+    if (operationCompletionSink_ != nullptr &&
+        operationStateStore_ != nullptr &&
+        clock_ != nullptr &&
+        ::IsWindow(GetSafeHwnd())) {
+        static_cast<void>(SetTimer(
+            kOperationOverlayTimerId,
+            kOperationOverlayPeriodMilliseconds,
+            nullptr));
+    }
+    RefreshOperationOverlay();
+}
+
 bool CAppShellView::ScheduleSmokeExit(const UINT milliseconds) {
     if (milliseconds == 0U) {
         return false;
@@ -95,8 +141,12 @@ bool CAppShellView::ScheduleSmokeExit(const UINT milliseconds) {
 }
 
 void CAppShellView::ShowOperationOverlay(const bool visible) {
-    // SAFETY: Overlay表示中もMessage Loopを止めず、完了通知とSnapshot通知を
-    // 処理できる状態を保ったまま、ユーザー入力だけを抑止する。
+    if (operationOverlayVisible_ == visible ||
+        !::IsWindow(operationOverlay_.GetSafeHwnd())) {
+        return;
+    }
+
+    operationOverlayVisible_ = visible;
     operationOverlay_.ShowWindow(visible ? SW_SHOW : SW_HIDE);
     visualRackButton_.EnableWindow(!visible);
     machiningQueueButton_.EnableWindow(!visible);
@@ -117,8 +167,6 @@ int CAppShellView::OnCreate(LPCREATESTRUCT createStruct) {
         dpi_ = 96U;
     }
 
-    // 常設Controlをすべて生成できた場合だけShell作成を成功させる。
-    // 部分生成状態では操作可能なWindowとして公開しない。
     const CRect empty(0, 0, 0, 0);
     if (!machineStatusView_.Create(this, empty, kMachineStatusControlId)) {
         return -1;
@@ -179,10 +227,17 @@ int CAppShellView::OnCreate(LPCREATESTRUCT createStruct) {
 
 void CAppShellView::OnDestroy() {
     KillTimer(kSmokeExitTimerId);
-    // 所有権: Presenterは所有しないため、Window破棄後の通知経路だけを切る。
+    KillTimer(kOperationOverlayTimerId);
     screenRouter_.VisualRackView().BindPresenter(nullptr);
-    visualRackPresenter_ = nullptr;
+    screenRouter_.MachiningQueueView().BindPresenter(nullptr);
+    screenRouter_.ManualTransportView().BindPresenter(nullptr);
     machineStatusPresenter_ = nullptr;
+    visualRackPresenter_ = nullptr;
+    machiningQueuePresenter_ = nullptr;
+    manualTransportPresenter_ = nullptr;
+    operationCompletionSink_ = nullptr;
+    operationStateStore_ = nullptr;
+    clock_ = nullptr;
     CWnd::OnDestroy();
 }
 
@@ -194,7 +249,6 @@ void CAppShellView::OnPaint() {
 }
 
 BOOL CAppShellView::OnEraseBkgnd(CDC* /*dc*/) {
-    // WHY: OnPaintがClient全体を塗るため、既定の背景消去を省いてちらつきを抑える。
     return TRUE;
 }
 
@@ -210,9 +264,12 @@ void CAppShellView::OnTimer(const UINT_PTR timerId) {
     if (timerId == kSmokeExitTimerId) {
         KillTimer(kSmokeExitTimerId);
         if (auto* frame = GetParentFrame(); frame != nullptr) {
-            // Smoke Testでも通常のWM_CLOSE経路を通し、Composition Rootの停止順序を検証する。
             frame->PostMessage(WM_CLOSE);
         }
+        return;
+    }
+    if (timerId == kOperationOverlayTimerId) {
+        RefreshOperationOverlay();
         return;
     }
     CWnd::OnTimer(timerId);
@@ -233,14 +290,37 @@ void CAppShellView::OnManualTransport() {
 LRESULT CAppShellView::OnSnapshotChanged(
     WPARAM /*version*/,
     LPARAM /*changeFlags*/) {
-    // WHY: MessageのVersionとFlagはHintに限定する。通知が連続・滞留しても
-    // PresenterがStoreの最新Snapshotを再取得し、古い版を逐次再生しない。
+    // Message値はHintに限定し、各PresenterがStoreの最新Snapshotを再取得する。
     if (machineStatusPresenter_ != nullptr) {
         machineStatusPresenter_->OnSnapshotChanged();
     }
     if (visualRackPresenter_ != nullptr) {
         visualRackPresenter_->OnSnapshotChanged();
     }
+    if (machiningQueuePresenter_ != nullptr) {
+        machiningQueuePresenter_->OnSnapshotChanged();
+    }
+    if (manualTransportPresenter_ != nullptr) {
+        manualTransportPresenter_->OnSnapshotChanged();
+    }
+    return 0;
+}
+
+LRESULT CAppShellView::OnOperationCompleted(
+    WPARAM /*unused*/,
+    LPARAM /*unused*/) {
+    if (operationCompletionSink_ != nullptr) {
+        for (const auto operationId :
+             operationCompletionSink_->DrainCompleted()) {
+            if (machiningQueuePresenter_ != nullptr) {
+                machiningQueuePresenter_->OnOperationCompleted(operationId);
+            }
+            if (manualTransportPresenter_ != nullptr) {
+                manualTransportPresenter_->OnOperationCompleted(operationId);
+            }
+        }
+    }
+    RefreshOperationOverlay();
     return 0;
 }
 
@@ -255,8 +335,6 @@ LRESULT CAppShellView::OnDpiChanged(
         dpi_ = 96U;
     }
 
-    // WHY: ShellはTop-level WindowではなくCMainFrameのChildであるため、
-    // suggestedRectを直接適用せず、現在のClient領域内をDIP基準で再配置する。
     machineStatusView_.SetDpi(dpi_);
     screenRouter_.SetDpi(dpi_);
     CRect client;
@@ -274,71 +352,73 @@ void CAppShellView::LayoutChildren(const int width, const int height) {
         return;
     }
 
-    // SOURCE: 承認済みMVP設計。上部状態帯48 DIP、左NavRail 72 DIPを
-    // 固定し、残りをActive Feature Hostとして使用する。
     const auto statusHeight = Scale(48);
     const auto navWidth = Scale(72);
     const auto navMargin = Scale(8);
     const auto buttonHeight = Scale(48);
     const auto buttonGap = Scale(8);
 
-    if (::IsWindow(machineStatusView_.GetSafeHwnd())) {
-        machineStatusView_.MoveWindow(0, 0, width, statusHeight);
-    }
+    machineStatusView_.MoveWindow(0, 0, width, statusHeight);
 
     auto buttonTop = statusHeight + navMargin;
     const auto buttonWidth = navWidth - (navMargin * 2);
-    if (::IsWindow(visualRackButton_.GetSafeHwnd())) {
-        visualRackButton_.MoveWindow(
-            navMargin,
-            buttonTop,
-            buttonWidth,
-            buttonHeight);
-    }
+    visualRackButton_.MoveWindow(
+        navMargin,
+        buttonTop,
+        buttonWidth,
+        buttonHeight);
     buttonTop += buttonHeight + buttonGap;
-    if (::IsWindow(machiningQueueButton_.GetSafeHwnd())) {
-        machiningQueueButton_.MoveWindow(
-            navMargin,
-            buttonTop,
-            buttonWidth,
-            buttonHeight);
-    }
+    machiningQueueButton_.MoveWindow(
+        navMargin,
+        buttonTop,
+        buttonWidth,
+        buttonHeight);
     buttonTop += buttonHeight + buttonGap;
-    if (::IsWindow(manualTransportButton_.GetSafeHwnd())) {
-        manualTransportButton_.MoveWindow(
-            navMargin,
-            buttonTop,
-            buttonWidth,
-            buttonHeight);
-    }
+    manualTransportButton_.MoveWindow(
+        navMargin,
+        buttonTop,
+        buttonWidth,
+        buttonHeight);
 
-    if (::IsWindow(screenRouter_.GetSafeHwnd())) {
-        screenRouter_.MoveWindow(
-            navWidth,
-            statusHeight,
-            (std::max)(0, width - navWidth),
-            (std::max)(0, height - statusHeight));
-    }
+    const auto hostWidth = (std::max)(0, width - navWidth);
+    const auto hostHeight = (std::max)(0, height - statusHeight);
+    screenRouter_.MoveWindow(
+        navWidth,
+        statusHeight,
+        hostWidth,
+        hostHeight);
 
-    if (::IsWindow(operationOverlay_.GetSafeHwnd())) {
-        const auto hostWidth = (std::max)(0, width - navWidth);
-        const auto hostHeight = (std::max)(0, height - statusHeight);
-        const auto overlayWidth = (std::min)(Scale(300), hostWidth);
-        const auto overlayHeight = (std::min)(Scale(84), hostHeight);
-        operationOverlay_.MoveWindow(
-            navWidth + ((hostWidth - overlayWidth) / 2),
-            statusHeight + ((hostHeight - overlayHeight) / 2),
-            overlayWidth,
-            overlayHeight);
-    }
+    const auto overlayWidth = (std::min)(Scale(300), hostWidth);
+    const auto overlayHeight = (std::min)(Scale(84), hostHeight);
+    operationOverlay_.MoveWindow(
+        navWidth + ((hostWidth - overlayWidth) / 2),
+        statusHeight + ((hostHeight - overlayHeight) / 2),
+        overlayWidth,
+        overlayHeight);
 }
 
 void CAppShellView::Activate(
     const ShelfManager::Presentation::ScreenId screen) {
-    // ScreenRoutingModelが未対応値と同一画面を拒否するため、Nav表示は常に
-    // 実際に保持されたActiveScreenから再計算する。
     static_cast<void>(screenRouter_.Activate(screen));
     UpdateNavigationState();
+
+    switch (screenRouter_.ActiveScreen()) {
+        case ShelfManager::Presentation::ScreenId::VisualRack:
+            if (visualRackPresenter_ != nullptr) {
+                visualRackPresenter_->Activate();
+            }
+            break;
+        case ShelfManager::Presentation::ScreenId::MachiningQueue:
+            if (machiningQueuePresenter_ != nullptr) {
+                machiningQueuePresenter_->Activate();
+            }
+            break;
+        case ShelfManager::Presentation::ScreenId::ManualTransport:
+            if (manualTransportPresenter_ != nullptr) {
+                manualTransportPresenter_->Activate();
+            }
+            break;
+    }
 }
 
 void CAppShellView::UpdateNavigationState() {
@@ -359,4 +439,11 @@ void CAppShellView::UpdateNavigationState() {
         active == ShelfManager::Presentation::ScreenId::ManualTransport
             ? BST_CHECKED
             : BST_UNCHECKED);
+}
+
+void CAppShellView::RefreshOperationOverlay() {
+    const auto visible = operationStateStore_ != nullptr &&
+                         clock_ != nullptr &&
+                         operationStateStore_->ShouldShowOverlay(clock_->Now());
+    ShowOperationOverlay(visible);
 }
