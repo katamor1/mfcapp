@@ -11,6 +11,7 @@
 #include "ShelfManager/Domain/Result.h"
 #include "ShelfManager/Domain/Status.h"
 #include "ShelfManager/Domain/Time.h"
+#include "ShelfManager/Domain/WorkpieceDetail.h"
 
 namespace ShelfManager::Domain {
 
@@ -99,6 +100,10 @@ struct MachineSnapshot final {
     std::vector<DestinationState> destinations;
     DataFreshness freshness;
 
+    // 最後に正常取得したOnDemand詳細。選択中WorkpieceとIDが一致する場合だけ表示する。
+    // nulloptは詳細未取得を示し、一覧情報の欠落やWorkpiece不在を意味しない。
+    std::optional<WorkpieceDetail> workpieceDetail{};
+
     friend bool operator==(
         const MachineSnapshot& left,
         const MachineSnapshot& right) {
@@ -109,7 +114,8 @@ struct MachineSnapshot final {
                left.rackState == right.rackState &&
                left.workpieces == right.workpieces &&
                left.destinations == right.destinations &&
-               left.freshness == right.freshness;
+               left.freshness == right.freshness &&
+               left.workpieceDetail == right.workpieceDetail;
     }
 
     friend bool operator!=(
