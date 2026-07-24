@@ -33,9 +33,11 @@ std::string CompleteCsv() {
 0,12,1,0,1
 0,13,1,0,1
 0,14,1,0,waiting
-0,15,1,0,1
-0,16,1,1,work-1.nc
-0,17,1,1,1
+0,15,1,0,2
+0,16,1,1,work-1-finish.nc
+0,17,1,1,2
+0,16,1,2,work-1-rough.nc
+0,17,1,2,1
 0,10,2,0,rack
 0,11,2,0,1
 0,12,2,0,2
@@ -105,7 +107,8 @@ TEST(CsvScenarioLoaderTests, LoadsFramesAndCarriesForwardUnchangedResponses) {
     const auto scenario = CsvScenarioLoader::Parse(input);
 
     ASSERT_TRUE(scenario.HasValue()) << scenario.ErrorValue().message;
-    const auto& initial = scenario.Value().FrameAt(0ms).snapshot;
+    const auto& initialFrame = scenario.Value().FrameAt(0ms);
+    const auto& initial = initialFrame.snapshot;
     const auto& machining = scenario.Value().FrameAt(1000ms).snapshot;
 
     ASSERT_EQ(3U, initial.workpieces.size());
@@ -113,7 +116,19 @@ TEST(CsvScenarioLoaderTests, LoadsFramesAndCarriesForwardUnchangedResponses) {
     EXPECT_EQ(1U, initial.rackLayout.LevelCount());
     EXPECT_EQ(3U, initial.rackLayout.PositionCount(1U));
     ASSERT_TRUE(initial.workpieces[0].firstInstruction.has_value());
-    EXPECT_EQ("work-1.nc", initial.workpieces[0].firstInstruction->Value());
+    EXPECT_EQ("work-1-rough.nc", initial.workpieces[0].firstInstruction->Value());
+
+    ASSERT_EQ(3U, initialFrame.workpieceDetails.size());
+    const auto& detail = initialFrame.workpieceDetails.front();
+    ASSERT_EQ(2U, detail.instructions.Instructions().size());
+    EXPECT_EQ("work-1-rough.nc",
+              detail.instructions.Instructions()[0].name.Value());
+    EXPECT_EQ(1U,
+              detail.instructions.Instructions()[0].executionOrder.Value());
+    EXPECT_EQ("work-1-finish.nc",
+              detail.instructions.Instructions()[1].name.Value());
+    EXPECT_EQ(2U,
+              detail.instructions.Instructions()[1].executionOrder.Value());
 
     EXPECT_EQ(WorkpieceStatus::Machining, machining.workpieces[0].status);
     EXPECT_EQ(MachiningStationLocation{1U},
