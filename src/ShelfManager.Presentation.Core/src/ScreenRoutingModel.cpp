@@ -11,8 +11,12 @@ ScreenId ScreenRoutingModel::ActiveScreen() const {
 
 bool ScreenRoutingModel::Activate(const ScreenId screen) {
     if (!IsSupported(screen)) {
+        // SAFETY: 未生成のFeature Viewへ遷移した状態をStoreへ残さない。
         return false;
     }
+
+    // WHY: UiStateStoreの戻り値をそのまま返し、同一画面の再選択を
+    // 画面再生成や不要な再描画の契機にしない。
     return uiState_.SetActiveScreen(screen);
 }
 
