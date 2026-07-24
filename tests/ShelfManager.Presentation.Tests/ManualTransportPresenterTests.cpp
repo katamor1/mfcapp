@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <algorithm>
 #include <memory>
 
 #include "ShelfManager/Application/IOperationCompletionSink.h"
@@ -8,10 +7,6 @@
 #include "ShelfManager/Application/OperationExecutor.h"
 #include "ShelfManager/Application/OperationStateStore.h"
 #include "ShelfManager/Application/RequestManualTransportUseCase.h"
-#include "ShelfManager/Infrastructure/Fake/FakeAuthorizationPort.h"
-#include "ShelfManager/Infrastructure/Fake/FakeMachineGateway.h"
-#include "ShelfManager/Infrastructure/Fake/FakeScenario.h"
-#include "ShelfManager/Infrastructure/Fake/ManualClock.h"
 #include "ShelfManager/Presentation/IManualTransportView.h"
 #include "ShelfManager/Presentation/ManualTransportPresenter.h"
 #include "ShelfManager/Presentation/UiStateStore.h"
@@ -21,7 +16,6 @@ namespace {
 
 using namespace ShelfManager::Application;
 using namespace ShelfManager::Domain;
-using namespace ShelfManager::Infrastructure::Fake;
 
 class CapturingManualTransportView final : public IManualTransportView {
 public:
@@ -39,15 +33,92 @@ public:
     void OnOperationCompleted(OperationId) override {}
 };
 
+class FixedClock final : public IClock {
+public:
+    [[nodiscard]] TimePoint Now() const override {
+        return TimePoint{};
+    }
+};
+
+class ControllableAuthorizationPort final : public IAuthorizationPort {
+public:
+    [[nodiscard]] OperatorAuthorization Authorize(OperatorAction) override {
+        return authorization_;
+    }
+
+    void SetAuthorization(const OperatorAuthorization authorization) {
+        authorization_ = authorization;
+    }
+
+private:
+    OperatorAuthorization authorization_{OperatorAuthorization::Authorized};
+};
+
+// PresentationテストではInfrastructure.Fakeを使わず、Application Portだけを満たす。
+class UnusedMachinePort final
+    : public IMachineStateReader,
+      public IMachineCommandGateway {
+public:
+    [[nodiscard]] Result<MachineSnapshotFragment> Read(
+        const MonitoringRequest&) override {
+        return Result<MachineSnapshotFragment>::Failure(
+            {ErrorCode::UnsupportedData, "Read is not used by this presenter test."});
+    }
+
+    [[nodiscard]] Result<PriorityChangeReceipt> ApplyPriorityChange(
+        const PriorityChangePlan&) override {
+        return Result<PriorityChangeReceipt>::Failure(
+            {ErrorCode::UnsupportedData,
+             "Priority change is not used by this presenter test."});
+    }
+
+    [[nodiscard]] Result<TransportReceipt> RequestTransport(
+        const TransportRequest&) override {
+        return Result<TransportReceipt>::Failure(
+            {ErrorCode::UnsupportedData,
+             "Transport is not used by this presenter test."});
+    }
+};
+
+QueuePriority Priority(const std::uint32_t value) {
+    const auto priority = QueuePriority::Create(value);
+    EXPECT_TRUE(priority.HasValue());
+    return priority.Value();
+}
+
+std::shared_ptr<const MachineSnapshot> InitialSnapshot() {
+    const auto layout = RackLayout::Create({3U});
+    EXPECT_TRUE(layout.HasValue());
+    return std::make_shared<const MachineSnapshot>(MachineSnapshot{
+        SnapshotVersion(1U),
+        TimePoint{},
+        MachineHealth{
+            MachineConnectionState::Connected,
+            MachineMode::Manual,
+            false,
+            false,
+            "normal"},
+        layout.Value(),
+        RackState{{RackOccupancy{RackSlot{1U, 1U}, WorkpieceId(1U)}}},
+        std::vector<WorkpieceSummary>{WorkpieceSummary{
+            WorkpieceId(1U),
+            RackSlot{1U, 1U},
+            Priority(1U),
+            WorkpieceStatus::WaitingForMachining,
+            MachiningInstructionName("one.nc")}},
+        std::vector<DestinationState>{DestinationState{
+            TransportDestination{MachiningStationLocation{1U}},
+            DestinationAvailability::Available}},
+        DataFreshness{DataFreshnessState::Fresh, TimePoint{}, std::nullopt}});
+}
+
 struct ManualPresenterFixture final {
     ManualPresenterFixture()
-        : gateway(clock, FakeScenario::StandardDemo()),
-          authorization(OperatorAuthorization::Authorized),
-          useCase(
+        : useCase(
               snapshotStore,
               authorization,
-              gateway,
-              gateway,
+              machinePort,
+              machinePort,
               operationStore),
           executor(clock, operationStore, completionSink),
           presenter(
@@ -58,8 +129,7 @@ struct ManualPresenterFixture final {
               operationStore,
               executor,
               useCase) {
-        const auto published = snapshotStore.Publish(
-            std::make_shared<const MachineSnapshot>(gateway.CurrentSnapshot()));
+        const auto published = snapshotStore.Publish(InitialSnapshot());
         EXPECT_TRUE(published.HasValue());
     }
 
@@ -67,29 +137,14 @@ struct ManualPresenterFixture final {
         executor.Stop();
     }
 
-    std::size_t FirstAvailableDestinationIndex() const {
-        const auto snapshot = snapshotStore.Current();
-        EXPECT_TRUE(snapshot != nullptr);
-        const auto destination = std::find_if(
-            snapshot->destinations.begin(),
-            snapshot->destinations.end(),
-            [](const auto& candidate) {
-                return candidate.availability ==
-                       DestinationAvailability::Available;
-            });
-        EXPECT_NE(snapshot->destinations.end(), destination);
-        return static_cast<std::size_t>(
-            std::distance(snapshot->destinations.begin(), destination));
-    }
-
     void SelectValidRequest() {
         presenter.SelectWorkpiece(WorkpieceId(1U));
-        presenter.SelectDestination(FirstAvailableDestinationIndex());
+        presenter.SelectDestination(0U);
     }
 
-    ManualClock clock;
-    FakeMachineGateway gateway;
-    FakeAuthorizationPort authorization;
+    FixedClock clock;
+    UnusedMachinePort machinePort;
+    ControllableAuthorizationPort authorization;
     MachineSnapshotStore snapshotStore;
     UiStateStore uiState;
     OperationStateStore operationStore;
@@ -125,7 +180,9 @@ TEST(ManualTransportPresenterTests, EnablesSubmitOnlyForAllowedManualRequest) {
     EXPECT_FALSE(fixture.view.last.statusText.empty());
 }
 
-TEST(ManualTransportPresenterTests, DeniedAuthorizationDisablesPreviouslyValidSelection) {
+TEST(
+    ManualTransportPresenterTests,
+    DeniedAuthorizationDisablesPreviouslyValidSelection) {
     ManualPresenterFixture fixture;
     fixture.SelectValidRequest();
     ASSERT_TRUE(fixture.view.last.submitEnabled);
@@ -140,7 +197,9 @@ TEST(ManualTransportPresenterTests, DeniedAuthorizationDisablesPreviouslyValidSe
         fixture.view.last.denialReasonText);
 }
 
-TEST(ManualTransportPresenterTests, AutomaticModeDisablesPreviouslyValidSelection) {
+TEST(
+    ManualTransportPresenterTests,
+    AutomaticModeDisablesPreviouslyValidSelection) {
     ManualPresenterFixture fixture;
     fixture.SelectValidRequest();
     ASSERT_TRUE(fixture.view.last.submitEnabled);
