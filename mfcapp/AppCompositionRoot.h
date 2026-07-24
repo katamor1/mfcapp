@@ -7,7 +7,7 @@
 class CAppShellView;
 
 // MFC起動時にFake Gateway、監視、Store、Presenter、Viewを結線する唯一の場所。
-// Start／Stopを通じて、通知受付停止、Worker join、Presenter破棄の順序を固定する。
+// Start／Stopを通じて、Worker停止・join、通知先の解除、Presenter破棄の順序を固定する。
 //
 // THREAD: Start、Stop、IsRunningはMFCのLifecycle ControllerがUI thread上で直列に
 // 呼び出す。同時呼出しは契約に含めない。
