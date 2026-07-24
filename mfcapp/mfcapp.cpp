@@ -78,8 +78,10 @@ BOOL CmfcappApp::InitInstance() {
     // 業務データはRegistryへ保存せず、MFC Shell固有設定の領域だけを分離する。
     SetRegistryKey(_T("ShelfManager"));
 
-    auto* frame = new (std::nothrow) CMainFrame;
-    if (frame == nullptr) {
+    CMainFrame* frame = nullptr;
+    try {
+        frame = new CMainFrame;
+    } catch (const std::bad_alloc&) {
         return FALSE;
     }
     m_pMainWnd = frame;
