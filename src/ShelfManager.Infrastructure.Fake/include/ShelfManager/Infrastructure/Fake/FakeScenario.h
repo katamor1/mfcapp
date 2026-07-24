@@ -6,6 +6,7 @@
 
 #include "ShelfManager/Domain/MachineSnapshot.h"
 #include "ShelfManager/Domain/Result.h"
+#include "ShelfManager/Domain/WorkpieceDetail.h"
 
 namespace ShelfManager::Infrastructure::Fake {
 
@@ -13,11 +14,14 @@ namespace ShelfManager::Infrastructure::Fake {
 struct FakeScenarioFrame final {
     std::chrono::milliseconds offset;
     ShelfManager::Domain::MachineSnapshot snapshot;
+
+    // OnDemand読取用の完全な加工指示書列。通常Snapshotとは別に保持する。
+    std::vector<ShelfManager::Domain::WorkpieceDetail> workpieceDetails{};
 };
 
 // 時系列のMachineSnapshotを決定論的に再生する開発・回帰テスト用Scenario。
 // COM通信、部分Fragment、読取遅延は再現せず、FakeMachineGatewayへ
-// 各時刻の完成済みSnapshotを提供する。
+// 各時刻の完成済みSnapshotとOnDemand詳細を提供する。
 class FakeScenario final {
 public:
     // 0msから始まり、offsetが厳密な昇順である場合だけScenarioを生成する。
