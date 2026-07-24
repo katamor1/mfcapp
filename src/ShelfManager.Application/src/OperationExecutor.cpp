@@ -1,6 +1,7 @@
 #include "ShelfManager/Application/OperationExecutor.h"
 
 #include <exception>
+#include <string>
 #include <utility>
 
 namespace ShelfManager::Application {
@@ -117,7 +118,13 @@ void OperationExecutor::Run() noexcept {
                 outcome.ErrorValue(),
                 clock_.Now()));
         }
-        completionSink_.OnOperationCompleted(item.id);
+
+        try {
+            completionSink_.OnOperationCompleted(item.id);
+        } catch (...) {
+            // SAFETY: 通知失敗でnoexcept Workerを異常終了させない。
+            // OperationStateStoreには完了済みRecordが残り、Overlay Timerも解除できる。
+        }
     }
 }
 
