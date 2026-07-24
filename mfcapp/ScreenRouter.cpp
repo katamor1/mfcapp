@@ -64,6 +64,8 @@ void ScreenRouter::OnPaint() {
     dc.FillSolidRect(client, kBackgroundColor);
     dc.SetBkMode(TRANSPARENT);
 
+    // WHY: Feature Viewが未接続のMVP段階でも、空白画面ではなく現在の
+    // ScreenIdと後続実装の責務を明示し、実装済みと誤認させない。
     CRect titleRect = client;
     titleRect.DeflateRect(Scale(32), Scale(28));
     titleRect.bottom = titleRect.top + Scale(34);
@@ -88,6 +90,7 @@ void ScreenRouter::OnPaint() {
 }
 
 BOOL ScreenRouter::OnEraseBkgnd(CDC* /*dc*/) {
+    // WHY: OnPaintがClient全体を塗るため、既定の背景消去を省いてちらつきを抑える。
     return TRUE;
 }
 
@@ -106,6 +109,8 @@ const wchar_t* ScreenRouter::TitleFor(
         case ScreenId::ManualTransport:
             return L"手動操作";
     }
+
+    // SAFETY: 未知値を既存Feature名へ暗黙変換せず、未対応状態として表示する。
     return L"未対応画面";
 }
 
