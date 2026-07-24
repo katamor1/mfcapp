@@ -15,26 +15,27 @@ IMPLEMENT_DYNAMIC(CMainFrame, CFrameWnd)
 BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
     ON_WM_CREATE()
     ON_WM_SETFOCUS()
+    ON_WM_CLOSE()
 END_MESSAGE_MAP()
 
 CMainFrame::CMainFrame() noexcept = default;
 CMainFrame::~CMainFrame() = default;
 
-int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct) {
-    if (CFrameWnd::OnCreate(lpCreateStruct) == -1) {
+CAppShellView& CMainFrame::ShellView() noexcept {
+    return shellView_;
+}
+
+int CMainFrame::OnCreate(LPCREATESTRUCT createStruct) {
+    if (CFrameWnd::OnCreate(createStruct) == -1) {
         return -1;
     }
 
-    // Client領域全体を占める唯一のViewをFrameのChild Windowとして作成する。
-    if (!m_wndView.Create(
-            nullptr,
-            nullptr,
-            AFX_WS_DEFAULT_VIEW,
-            CRect(0, 0, 0, 0),
+    // FrameのClient領域全体を占める常設Shellを一つだけ作成する。
+    if (!shellView_.Create(
             this,
-            AFX_IDW_PANE_FIRST,
-            nullptr)) {
-        TRACE0("ビュー ウィンドウを作成できませんでした。\n");
+            CRect(0, 0, 0, 0),
+            AFX_IDW_PANE_FIRST)) {
+        TRACE0("アプリケーションShellを作成できませんでした。\n");
         return -1;
     }
     return 0;
@@ -45,10 +46,12 @@ BOOL CMainFrame::PreCreateWindow(CREATESTRUCT& cs) {
         return FALSE;
     }
 
-    // MVP Shellで採用するFrame styleを明示し、Client edgeを外す。
-    cs.style = WS_OVERLAPPED | WS_CAPTION | FWS_ADDTOTITLE;
+    // MVPは単一Top-level Frameとして、通常のサイズ変更・最小化・最大化を許可する。
+    cs.style = WS_OVERLAPPEDWINDOW;
     cs.dwExStyle &= ~WS_EX_CLIENTEDGE;
     cs.lpszClass = AfxRegisterWndClass(0);
+    cs.cx = 1280;
+    cs.cy = 800;
     return TRUE;
 }
 
@@ -62,17 +65,22 @@ void CMainFrame::Dump(CDumpContext& dc) const {
 }
 #endif
 
-void CMainFrame::OnSetFocus(CWnd* /*pOldWnd*/) {
-    // Keyboard入力とCommand routingの基点をClient Viewへ維持する。
-    m_wndView.SetFocus();
+void CMainFrame::OnSetFocus(CWnd* /*oldWindow*/) {
+    shellView_.SetFocus();
+}
+
+void CMainFrame::OnClose() {
+    // SAFETY: Window破棄前にSnapshot通知を止め、Monitoring Workerをjoinする。
+    theApp.StopComposition();
+    CFrameWnd::OnClose();
 }
 
 BOOL CMainFrame::OnCmdMsg(
-    UINT nID,
-    int nCode,
+    const UINT nID,
+    const int nCode,
     void* pExtra,
     AFX_CMDHANDLERINFO* pHandlerInfo) {
-    if (m_wndView.OnCmdMsg(nID, nCode, pExtra, pHandlerInfo)) {
+    if (shellView_.OnCmdMsg(nID, nCode, pExtra, pHandlerInfo)) {
         return TRUE;
     }
     return CFrameWnd::OnCmdMsg(nID, nCode, pExtra, pHandlerInfo);
