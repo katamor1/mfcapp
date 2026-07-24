@@ -6,6 +6,7 @@
 
 namespace ShelfManager::Presentation {
 class MachineStatusPresenter;
+class VisualRackPresenter;
 }
 
 // MFC Applicationの常設Shell。
@@ -28,15 +29,18 @@ public:
     // Composition RootがPresenterを構築するためのView境界を返す。
     // 戻り値の参照はShellの寿命を越えて保持してはならない。
     [[nodiscard]] CMachineStatusView& MachineStatusView() noexcept;
+    [[nodiscard]] CVisualRackView& VisualRackView() noexcept;
 
     // Shell全体で共有する画面選択状態を返す。
     // MachineSnapshotや加工順位の正本ではない。
     [[nodiscard]] ShelfManager::Presentation::UiStateStore& UiState() noexcept;
 
-    // presenterの所有権は保持しない。Composition RootはShellより先にunbindし、
-    // Monitoring Worker停止後にPresenterを破棄する。nullptrは通知配送を停止する。
+    // Presenterの所有権は保持しない。Composition RootはShellより先にunbindし、
+    // Worker停止後にPresenterを破棄する。nullptrは通知配送を停止する。
     void BindMachineStatusPresenter(
         ShelfManager::Presentation::MachineStatusPresenter* presenter) noexcept;
+    void BindVisualRackPresenter(
+        ShelfManager::Presentation::VisualRackPresenter* presenter) noexcept;
 
     // Smoke Test専用の一回限りの終了Timerを設定する。
     // 0またはSetTimer失敗時はfalseを返し、通常運用の終了制御には使用しない。
@@ -74,6 +78,8 @@ private:
     CButton manualTransportButton_;
     CStatic operationOverlay_;
     ShelfManager::Presentation::MachineStatusPresenter* machineStatusPresenter_{
+        nullptr};
+    ShelfManager::Presentation::VisualRackPresenter* visualRackPresenter_{
         nullptr};
     UINT dpi_{96U};
 };
