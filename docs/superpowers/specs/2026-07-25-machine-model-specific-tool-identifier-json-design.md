@@ -25,7 +25,7 @@
 
 ## 2. 本追補の位置付け
 
-`2026-07-24-queue-priority-check-design-addendum.md`では、工具識別を`Toolid`固定としている。本追補は、同文書の次の部分を機種別工具識別形式へ拡張する。
+`2026-07-24-queue-priority-check-design-addendum.md`では、工具識別を`Toolid`固定としている。本追補は、同文書の次の部分を機種別工具識別形式へ拡張し、固定`Toolid`の記述より優先する。
 
 - 入力JSONの工具識別項目
 - 出力JSONの工具識別項目
@@ -132,18 +132,47 @@ public:
 
 現在の数値`toolId`固定型を、排他的な`std::variant`へ変更する。
 
+数値ID方式は既存互換のため`std::uint64_t`範囲を受け付ける。`Toolid == 0`の可否は正式外部契約で確定していないため、本追補では新しい制約を追加しない。
+
 ```cpp
 struct ToolIdIdentifier final {
     std::uint64_t value;
 };
+```
 
-struct ToolNameIdentifier final {
-    std::string value;
+文字列方式は、無効な文字列をPublic fieldへ直接設定できないValue Objectとする。
+
+```cpp
+class ToolNameIdentifier final {
+public:
+    [[nodiscard]]
+    static Result<ToolNameIdentifier> Create(std::string value);
+
+    [[nodiscard]]
+    const std::string& Value() const noexcept;
+
+private:
+    explicit ToolNameIdentifier(std::string value);
+    std::string value_;
 };
 
-struct ToolGroupSerialIdentifier final {
-    std::string group;
-    std::string serial;
+class ToolGroupSerialIdentifier final {
+public:
+    [[nodiscard]]
+    static Result<ToolGroupSerialIdentifier> Create(
+        std::string group,
+        std::string serial);
+
+    [[nodiscard]]
+    const std::string& Group() const noexcept;
+
+    [[nodiscard]]
+    const std::string& Serial() const noexcept;
+
+private:
+    ToolGroupSerialIdentifier(std::string group, std::string serial);
+    std::string group_;
+    std::string serial_;
 };
 
 using ToolIdentifier = std::variant<
@@ -168,20 +197,22 @@ struct ToolAvailabilityResult final {
 };
 ```
 
-これにより、一つの工具へ`Toolid`と`Toolname`を同時設定する状態や、`ToolGroup`だけを設定して`ToolSerial`が欠落する状態を、型の生成境界で拒否する。
+`ToolIdentifier`には完全一致の等価比較と、Workpiece単位の集約Mapで使用する明示的な比較関数を定義する。比較時に文字列を補正しない。
 
 ## 6. 文字列工具識別子の規則
 
-`Toolname`、`ToolGroup`、`ToolSerial`は文字列として扱う。`ToolSerial`も数値へ変換しない。
+`Toolname`、`ToolGroup`、`ToolSerial`はUTF-8文字列として扱う。`ToolSerial`も数値へ変換しない。
 
-次を必須とする。
+Factoryは次を必須とする。
 
 - 空文字ではない
-- 先頭に空白がない
-- 末尾に空白がない
+- 先頭がASCII空白文字ではない
+- 末尾がASCII空白文字ではない
 - 大文字・小文字を保持する
 - `ToolSerial`の先頭ゼロを保持する
 - 要求と応答を完全一致で比較する
+
+ASCII空白文字は、space、tab、CR、LFとする。その他のUnicode文字は正規化せず、UTF-8 byte sequenceの一部として保持する。
 
 次の補正は行わない。
 
@@ -208,7 +239,7 @@ drill_d10
 "DRILL_D10 "
 ```
 
-Group／Serial方式では、`ToolGroup`と`ToolSerial`の両方が有効な場合だけ識別子を生成できる。
+Group／Serial方式では、`ToolGroup`と`ToolSerial`の両方が有効な場合だけValue Objectを生成できる。
 
 ## 7. 送信JSON契約
 
@@ -236,20 +267,7 @@ Root
 }
 ```
 
-必須項目:
-
-```text
-Toolid
-UsageTime
-```
-
-送信禁止項目:
-
-```text
-Toolname
-ToolGroup
-ToolSerial
-```
+必須項目は`Toolid`と`UsageTime`である。`Toolname`、`ToolGroup`、`ToolSerial`は送信しない。
 
 ### 7.2 Tool Name方式
 
@@ -260,20 +278,7 @@ ToolSerial
 }
 ```
 
-必須項目:
-
-```text
-Toolname
-UsageTime
-```
-
-送信禁止項目:
-
-```text
-Toolid
-ToolGroup
-ToolSerial
-```
+必須項目は`Toolname`と`UsageTime`である。`Toolid`、`ToolGroup`、`ToolSerial`は送信しない。
 
 ### 7.3 Tool Group／Serial方式
 
@@ -285,20 +290,7 @@ ToolSerial
 }
 ```
 
-必須項目:
-
-```text
-ToolGroup
-ToolSerial
-UsageTime
-```
-
-送信禁止項目:
-
-```text
-Toolid
-Toolname
-```
+必須項目は`ToolGroup`、`ToolSerial`、`UsageTime`である。`Toolid`と`Toolname`は送信しない。
 
 一回の加工可否判定要求では、単一の機種プロファイルを全Workpiece、全加工指示書、全工具へ適用する。複数の工具識別形式を同一要求内へ混在させない。
 
@@ -559,7 +551,7 @@ public:
 };
 ```
 
-CSV文字列はFake Infrastructureの外へ公開しない。
+CSV文字列はFake Infrastructureの外へ公開しない。標準CSVでは起動時に機種が確定する。`Unresolved`からの再取得と`MismatchLatched`の状態遷移は、`IMachineModelProvider`の専用Test Doubleで検証する。
 
 ## 16. 機種プロファイルSession
 
@@ -574,11 +566,12 @@ enum class MachineModelSessionState {
 
 struct MachineModelSessionSnapshot final {
     MachineModelSessionState state;
-    std::optional<MachineModel> resolvedModel;
     std::optional<MachineModelProfile> profile;
     std::optional<Error> lastObservationError;
 };
 ```
+
+`MachineModel`は`profile->model`から取得し、重複した別フィールドとして保持しない。
 
 ```cpp
 class IMachineModelProfileSource {
@@ -597,8 +590,11 @@ public:
 class MachineModelSession final
     : public IMachineModelProfileSource {
 public:
-    void Observe(MachineModel model);
-    void ObserveFailure(Error error);
+    // UI通知が必要な状態または診断分類の変化があった場合だけtrueを返す。
+    [[nodiscard]] bool Observe(MachineModel model);
+
+    // ErrorCodeに基づいて一時失敗と機種契約不正を区別する。
+    [[nodiscard]] bool ObserveFailure(Error error);
 
     [[nodiscard]]
     Result<MachineModelProfile> RequireProfile() const override;
@@ -622,30 +618,31 @@ SessionのPublic APIは内部mutexで直列化し、Profileや状態は値とし
 
 機種を確定できていない状態である。
 
-```text
-一時通信失敗
-Timeout
-未知の生機種値
-未対応MachineModel
-Registry未登録
-```
-
-監視GUIは起動・継続するが、安全関連操作を禁止する。機種情報の再取得を継続する。
+- 対応済み機種の初回観測: `Resolved`へ遷移
+- `Unavailable`／`Timeout`／`InternalFailure`: `Unresolved`を維持
+- `UnsupportedData`／`InvalidResponse`: `Unresolved`を維持
+- 機種情報の再取得を継続
+- 監視表示を継続
+- 安全関連操作を禁止
 
 `RequireProfile()`は`UnsupportedData`を返す。
+
+`ObserveFailure`の戻り値は、Session stateまたは画面に出す診断分類の`ErrorCode`が変化した場合だけtrueとする。診断messageの文字列差だけでは再描画を要求しない。
 
 ### 17.2 `Resolved`
 
 最初に正常取得した対応済み機種のProfileを固定した状態である。
 
-- 同じ機種の再取得では状態を維持する
-- 一時的な`Unavailable`または`Timeout`では確定済みProfileを保持する
-- 取得失敗だけを理由に別形式へ切り替えない
+- 同じ機種の再取得: `Resolved`を維持
+- 別の対応済み機種: `MismatchLatched`へ遷移
+- `Unavailable`／`Timeout`／`InternalFailure`: 確定済みProfileを保持
+- `UnsupportedData`／`InvalidResponse`: `MismatchLatched`へ遷移
+- 一時取得失敗だけを理由にProfileを破棄しない
 - 既存の通信状態・Freshness・機械Error条件は別途確認する
 
 ### 17.3 `MismatchLatched`
 
-確定後に、別の機種、未知機種値、不正な機種応答、Registry未登録機種を観測した場合に遷移する。
+確定後に、別の機種、未知機種値、不正な機種応答、Registry未登録機種を観測した状態である。
 
 ```text
 確定済み: ProvisionalModel2
@@ -660,11 +657,11 @@ MismatchLatched
 - 同じ機種を再観測した際の自動復帰
 - オペレーター操作による解除
 
-解除方法はアプリ再起動のみとする。
+解除方法はアプリ再起動のみとする。以降の観測結果では状態を変更しない。
 
 `RequireProfile()`は`Conflict`を返す。
 
-## 18. Profileの共有
+## 18. Profileの共有と並行実行時の再確認
 
 Request生成側とGateway側が別々に機種を取得してはならない。Composition Rootが所有する同じ`MachineModelSession`を参照する。
 
@@ -679,16 +676,29 @@ Request生成側とGateway側が別々に機種を取得してはならない。
        └─ Presenter
 ```
 
-Gatewayは実行時に次の順序で処理する。
+Gatewayは、最初に取得したProfile値を送信と応答解析の両方へ使用する。
 
 ```text
 RequireProfile
   → Serialize(profile, request)
+  → 送信直前にRequireProfileを再確認
   → Raw API呼出し
   → Parse(profile, output)
+  → 応答採用前にRequireProfileを再確認
 ```
 
-送信と応答解析に同じProfile値を使用する。
+監視スレッドがRaw API実行中に`MismatchLatched`へ遷移した場合、応答を`Conflict`として破棄する。読み取り専用の判定APIが既に呼ばれた場合でも、その結果を順位変更や搬送判断へ使用しない。
+
+変更を行うUse Caseは、実行開始時だけでなく、`IMachineCommandGateway`を呼ぶ直前にも`RequireProfile()`を再確認する。
+
+```text
+Profile確認
+  → Snapshot・認証・Freshness等を確認
+  → 変更Gateway直前にProfileを再確認
+  → 順位書込みまたは搬送要求
+```
+
+これにより、操作Queueへの投入後や検証途中で機種不一致が観測された場合も、外部変更へ進まない。
 
 ## 19. Application PortとGateway
 
@@ -733,8 +743,10 @@ MonitoringCoordinator::Tick
 機種取得失敗
   → Sessionの診断状態を更新
   → 通常Snapshotの監視・公開は継続
-  → 安全関連操作だけを禁止
+  → 安全関連操作だけを禁止または既存Profileを保持
 ```
+
+`Observe`または`ObserveFailure`がtrueを返した場合だけ、専用Notification Sinkへ通知する。
 
 ## 21. 安全関連操作の共通ガード
 
@@ -757,14 +769,7 @@ RequestManualTransportUseCase
 将来のMachiningDispatchUseCase
 ```
 
-外部変更の前に`RequireProfile()`を再確認する。UIのButton状態だけを信用しない。
-
-```text
-機種Profile確認
-  → 最新Snapshot確認
-  → 認証・通信・Freshness等の既存安全条件
-  → Gateway呼出し
-```
+UIのButton状態だけを信用せず、各外部処理の直前に`RequireProfile()`を確認する。
 
 ## 22. UI通知
 
@@ -792,7 +797,7 @@ MessageへSessionのポインターや機種値を載せない。UI threadが`Cu
 通知対象は次とする。
 
 - `Unresolved`から`Resolved`
-- `Unresolved`中の診断理由変更
+- `Unresolved`中の表示用ErrorCode変更
 - `Resolved`から`MismatchLatched`
 
 同じ機種の再観測や、一時通信失敗で確定済みProfileを保持しただけの場合は通知しない。
@@ -875,7 +880,7 @@ PresenterとUse Caseの両方で確認する。
 | 応答の工具欠落・追加・重複 | `InvalidResponse` | API結果を不採用 |
 | `TotalUsageTime`不一致 | `InvalidResponse` | API結果を不採用 |
 | JSON生成内部失敗 | `InternalFailure` | なし |
-| 一時的な機種取得失敗 | 元の`Unavailable`／`Timeout`を診断保持 | 未確定時は操作なし |
+| 一時的な機種取得失敗 | 元の`Unavailable`／`Timeout`／`InternalFailure`を診断保持 | 未確定時は操作なし |
 
 `Error::message`は診断用とし、COMの生値や内部JSONを画面へそのまま表示しない。
 
@@ -906,7 +911,7 @@ config/mock/queue-priority-check/
 ### 26.1 Domain
 
 - 3種類の`ToolIdentifier`を生成できる
-- 空文字と前後空白を拒否する
+- 空文字と前後空白をFactoryで拒否する
 - 大文字・小文字を区別する
 - `ToolSerial`の先頭ゼロを保持する
 - Profile Registryが3機種を正しい形式へ対応付ける
@@ -923,15 +928,16 @@ config/mock/queue-priority-check/
 - Session初期状態は`Unresolved`
 - 最初の既知機種観測で`Resolved`
 - 同じ機種の再観測で状態を維持する
-- 一時`Unavailable`／`Timeout`で確定済みProfileを保持する
+- 一時`Unavailable`／`Timeout`／`InternalFailure`で確定済みProfileを保持する
 - 別機種で`MismatchLatched`
-- 確定後の未知値・不正値で`MismatchLatched`
+- 確定後の`UnsupportedData`／`InvalidResponse`で`MismatchLatched`
 - `MismatchLatched`から自動復帰しない
 - 機種未確定時に変更Use CaseがGatewayを呼ばない
 - 不一致時も変更Use CaseがGatewayを呼ばない
-- 操作投入後、実行直前に不一致となった場合も処理を拒否する
+- Raw API実行中の不一致で応答を不採用にする
+- 操作投入後、変更Gateway直前の不一致で処理を拒否する
 - Request FactoryとGatewayが同じSessionを参照する
-- Session通知は必要な状態遷移だけで発生する
+- Session通知は必要な状態・ErrorCode変化だけで発生する
 
 ### 26.3 Infrastructure.Fake
 
@@ -960,6 +966,7 @@ config/mock/queue-priority-check/
 - `TotalUsageTime`不一致を拒否する
 - `Not Found`時の`RemainLifeTime`省略規則を維持する
 - `Serialize`失敗時にRaw APIを呼ばない
+- Raw API呼出し後の機種不一致で応答を返さない
 
 ### 26.5 Presentation
 
@@ -985,6 +992,7 @@ Release / x64
 ### 27.1 変更するもの
 
 - C++内部の`toolId`固定型を`ToolIdentifier`へ変更
+- 文字列Tool IdentifierのValue Object Factoryを追加
 - `QueuePriorityCheckJsonCodec::Serialize`／`Parse`へProfile引数を追加
 - `ComQueuePriorityCheckGateway`へProfile Sourceを注入
 - Request Factoryを追加
@@ -1009,7 +1017,7 @@ Release / x64
 
 ```text
 [ ] ToolIdentifierが3形式の排他的variantになっている
-[ ] 文字列識別子が完全一致規則を持つ
+[ ] 文字列識別子がFactoryと完全一致規則を持つ
 [ ] 3つの暫定MachineModelがRegistryで形式へ対応付けられている
 [ ] CSV dataId 24から機種を取得できる
 [ ] 機種未確定中も監視GUIは起動できる
@@ -1018,6 +1026,8 @@ Release / x64
 [ ] 一時取得失敗では確定済みProfileを保持する
 [ ] 別機種または不正機種応答でMismatchLatchedとなる
 [ ] MismatchLatchedは再起動まで自動解除されない
+[ ] Raw API実行中のMismatchLatchedでも結果を採用しない
+[ ] 変更Gateway直前にProfileを再確認する
 [ ] 送信JSONが機種ごとに正しい工具識別項目だけを持つ
 [ ] 応答JSONも同じ工具識別形式で解析される
 [ ] Workpiece単位のTotalUsageTimeが要求合計と完全一致する
@@ -1050,6 +1060,7 @@ Release / x64
 [ ] RequestへJSON表現上の都合を混ぜていない
 [ ] Request生成時と送信直前の二段階検証になっている
 [ ] 送信と応答解析で同じProfileを使用する
+[ ] API実行中の機種不一致でも結果を採用しない
 [ ] 未対応機種でToolidへフォールバックしない
 [ ] 未確定中も監視表示を継続できる
 [ ] 未確定・不一致時の変更系処理がFail Closedである
