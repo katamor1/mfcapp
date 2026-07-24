@@ -19,6 +19,7 @@ using ShelfManager::Domain::RackState;
 using ShelfManager::Domain::SnapshotVersion;
 using ShelfManager::Domain::TimePoint;
 using ShelfManager::Domain::TransportDestination;
+using ShelfManager::Domain::WorkpieceDetail;
 using ShelfManager::Domain::WorkpieceId;
 using ShelfManager::Domain::WorkpieceSummary;
 
@@ -62,6 +63,9 @@ struct MachineSnapshotFragment final {
     std::optional<std::vector<DestinationState>> destinations;
     DataFreshness freshness;
 
+    // OnDemandで取得した一件の詳細。Standard読取では設定しない。
+    std::optional<WorkpieceDetail> workpieceDetail{};
+
     friend bool operator==(
         const MachineSnapshotFragment& left,
         const MachineSnapshotFragment& right) {
@@ -70,7 +74,8 @@ struct MachineSnapshotFragment final {
                left.rackState == right.rackState &&
                left.workpieces == right.workpieces &&
                left.destinations == right.destinations &&
-               left.freshness == right.freshness;
+               left.freshness == right.freshness &&
+               left.workpieceDetail == right.workpieceDetail;
     }
 
     friend bool operator!=(
@@ -151,7 +156,8 @@ enum class SnapshotChangeFlag : std::uint32_t {
     RackState = 1U << 2U,
     Workpieces = 1U << 3U,
     Destinations = 1U << 4U,
-    Freshness = 1U << 5U
+    Freshness = 1U << 5U,
+    WorkpieceDetail = 1U << 6U
 };
 
 [[nodiscard]] constexpr SnapshotChangeFlag operator|(
