@@ -3,10 +3,11 @@
 #include "AppCompositionRoot.h"
 
 #include "AppShellView.h"
+#include "OperationCompletionMessageSink.h"
 #include "SnapshotMessageSink.h"
 
-#include <algorithm>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <limits>
 #include <optional>
@@ -19,10 +20,17 @@
 #include "ShelfManager/Application/MonitoringCoordinator.h"
 #include "ShelfManager/Application/MonitoringPlanBuilder.h"
 #include "ShelfManager/Application/MonitoringWorker.h"
+#include "ShelfManager/Application/MoveWorkpiecePriorityUseCase.h"
+#include "ShelfManager/Application/OperationExecutor.h"
+#include "ShelfManager/Application/OperationStateStore.h"
+#include "ShelfManager/Application/RequestManualTransportUseCase.h"
 #include "ShelfManager/Infrastructure/Fake/CsvScenarioLoader.h"
 #include "ShelfManager/Infrastructure/Fake/FakeAuthorizationPort.h"
 #include "ShelfManager/Infrastructure/Fake/FakeMachineGateway.h"
 #include "ShelfManager/Presentation/MachineStatusPresenter.h"
+#include "ShelfManager/Presentation/MachiningQueuePresenter.h"
+#include "ShelfManager/Presentation/ManualTransportPresenter.h"
+#include "ShelfManager/Presentation/VisualRackPresenter.h"
 
 #pragma comment(lib, "Shell32.lib")
 
@@ -31,7 +39,6 @@ namespace {
 using ShelfManager::Domain::ErrorCode;
 using ShelfManager::Domain::Result;
 
-// Product用IClock実装。時刻差分と監視周期だけに使用し、日時表示や永続化には使わない。
 class SteadyClock final : public ShelfManager::Application::IClock {
 public:
     [[nodiscard]] ShelfManager::Domain::TimePoint Now() const override {
@@ -39,8 +46,6 @@ public:
     }
 };
 
-// Process起動時だけ有効な開発／Smoke Test設定。
-// 業務データとして永続化せず、指定がなければRepository標準Fixtureを使用する。
 struct StartupOptions final {
     std::filesystem::path mockCsvPath{"config/mock/machine-responses.csv"};
     bool fakeAuthorized{false};
@@ -66,8 +71,6 @@ Result<UINT> ParsePositiveUint(const std::wstring_view value) {
             "--smoke-exit-ms requires a positive integer.");
     }
 
-    // WHY: Locale依存変換や符号・空白の暗黙受入れを避け、Smoke Testの入力を
-    // 正の10進整数へ限定する。
     std::uint64_t parsed = 0U;
     for (const auto character : value) {
         if (character < L'0' || character > L'9') {
@@ -103,8 +106,6 @@ Result<StartupOptions> ParseStartupOptions() {
             "Could not parse the process command line.");
     }
 
-    // 所有権: CommandLineToArgvWが確保した配列は、成功・失敗の全経路で
-    // LocalFreeによりこの関数内で解放する。
     StartupOptions options;
     const std::wstring_view csvPrefix = L"--mock-csv=";
     const std::wstring_view smokePrefix = L"--smoke-exit-ms=";
@@ -112,8 +113,6 @@ Result<StartupOptions> ParseStartupOptions() {
     for (int index = 1; index < argumentCount; ++index) {
         const std::wstring_view argument(arguments[index]);
         if (argument == L"--fake") {
-            // WHY: 旧Smoke Testとの互換用Alias。現在はCSV Fakeが既定であるため、
-            // 実行モードや権限状態を追加で変更しない。
             continue;
         }
         if (argument == L"--fake-authorized") {
@@ -142,7 +141,6 @@ Result<StartupOptions> ParseStartupOptions() {
             continue;
         }
 
-        // SAFETY: 未知Optionを無視して異なる起動条件で動作させず、起動を失敗させる。
         ::LocalFree(arguments);
         return Failure<StartupOptions>(
             ErrorCode::InvalidArgument,
@@ -160,10 +158,6 @@ std::filesystem::path ResolveMockCsvPath(
         return requestedPath;
     }
 
-    // WHY: Visual Studio、Repository root、CIのout directoryではCurrent Directoryが
-    // 異なる。まず呼出し元の相対Pathを尊重し、見つからない場合だけEXE位置から
-    // Repository方向へ探索する。存在しないときは元Pathを返し、Loaderの明示的な
-    // NotFoundへ委ねる。
     auto currentCandidate = std::filesystem::absolute(requestedPath, error);
     if (!error && std::filesystem::exists(currentCandidate, error) && !error) {
         return currentCandidate;
@@ -199,29 +193,40 @@ std::filesystem::path ResolveMockCsvPath(
 
 class AppCompositionRoot::Impl final {
 public:
-    // THREAD: UI threadのLifecycle Controllerから直列に呼び出す。
-    // SAFETY: Workerを最初に停止・joinし、以降のSnapshot通知が発生しないことを
-    // 確定してからPresenter、Sink、Store、Gatewayを解放する。
     void Stop() noexcept {
-        if (worker_ != nullptr) {
+        if (operationExecutor_ != nullptr) {
+            operationExecutor_->Stop();
+        }
+        if (monitoringWorker_ != nullptr) {
             try {
-                worker_->Stop();
+                monitoringWorker_->Stop();
             } catch (...) {
-                // 終了処理では例外を外へ送出せず、残りの所有物を必ず解放する。
+                // 終了処理では例外を外へ送出せず、残りの依存を必ず解放する。
             }
         }
 
         if (shell_ != nullptr) {
+            shell_->BindOperationServices(nullptr, nullptr, nullptr);
+            shell_->BindManualTransportPresenter(nullptr);
+            shell_->BindMachiningQueuePresenter(nullptr);
+            shell_->BindVisualRackPresenter(nullptr);
             shell_->BindMachineStatusPresenter(nullptr);
         }
 
-        // 所有依存の逆順に解放し、参照先より先に参照元を破棄する。
-        presenter_.reset();
-        worker_.reset();
+        manualTransportPresenter_.reset();
+        machiningQueuePresenter_.reset();
+        visualRackPresenter_.reset();
+        machineStatusPresenter_.reset();
+        operationExecutor_.reset();
+        manualTransportUseCase_.reset();
+        movePriorityUseCase_.reset();
+        monitoringWorker_.reset();
         coordinator_.reset();
+        operationCompletionSink_.reset();
         snapshotSink_.reset();
         monitoringPlan_.reset();
         assembler_.reset();
+        operationStateStore_.reset();
         snapshotStore_.reset();
         authorization_.reset();
         gateway_.reset();
@@ -230,27 +235,40 @@ public:
         running_ = false;
     }
 
-    // shell_は非所有参照。Window破棄前にStopでnullptrへ戻す。
     CAppShellView* shell_{nullptr};
     std::unique_ptr<SteadyClock> clock_;
     std::unique_ptr<ShelfManager::Infrastructure::Fake::FakeMachineGateway>
         gateway_;
-    // 後続のManualTransport Featureへ注入する開発用認証Port。
-    // 現在のMachineStatus表示やNavRailの操作許可には使用しない。
     std::unique_ptr<ShelfManager::Infrastructure::Fake::FakeAuthorizationPort>
         authorization_;
     std::unique_ptr<ShelfManager::Application::MachineSnapshotStore>
         snapshotStore_;
+    std::unique_ptr<ShelfManager::Application::OperationStateStore>
+        operationStateStore_;
     std::unique_ptr<ShelfManager::Application::MachineSnapshotAssembler>
         assembler_;
     std::unique_ptr<ShelfManager::Application::MonitoringPlanBuilder>
         monitoringPlan_;
     std::unique_ptr<SnapshotMessageSink> snapshotSink_;
+    std::unique_ptr<OperationCompletionMessageSink> operationCompletionSink_;
     std::unique_ptr<ShelfManager::Application::MonitoringCoordinator>
         coordinator_;
-    std::unique_ptr<ShelfManager::Application::MonitoringWorker> worker_;
+    std::unique_ptr<ShelfManager::Application::MonitoringWorker>
+        monitoringWorker_;
+    std::unique_ptr<ShelfManager::Application::MoveWorkpiecePriorityUseCase>
+        movePriorityUseCase_;
+    std::unique_ptr<ShelfManager::Application::RequestManualTransportUseCase>
+        manualTransportUseCase_;
+    std::unique_ptr<ShelfManager::Application::OperationExecutor>
+        operationExecutor_;
     std::unique_ptr<ShelfManager::Presentation::MachineStatusPresenter>
-        presenter_;
+        machineStatusPresenter_;
+    std::unique_ptr<ShelfManager::Presentation::VisualRackPresenter>
+        visualRackPresenter_;
+    std::unique_ptr<ShelfManager::Presentation::MachiningQueuePresenter>
+        machiningQueuePresenter_;
+    std::unique_ptr<ShelfManager::Presentation::ManualTransportPresenter>
+        manualTransportPresenter_;
     bool running_{false};
 };
 
@@ -268,7 +286,8 @@ Result<void> AppCompositionRoot::Start(CAppShellView& shell) {
     }
     if (!::IsWindow(shell.GetSafeHwnd())) {
         return Result<void>::Failure(
-            {ErrorCode::InvalidArgument, "Application shell window is not created."});
+            {ErrorCode::InvalidArgument,
+             "Application shell window is not created."});
     }
 
     const auto options = ParseStartupOptions();
@@ -276,8 +295,6 @@ Result<void> AppCompositionRoot::Start(CAppShellView& shell) {
         return Result<void>::Failure(options.ErrorValue());
     }
 
-    // SAFETY: CSVが開けない、または契約違反の場合はFallback値で起動せず、
-    // GatewayやWorkerを作成する前に失敗する。
     const auto csvPath = ResolveMockCsvPath(options.Value().mockCsvPath);
     const auto scenario =
         ShelfManager::Infrastructure::Fake::CsvScenarioLoader::Load(csvPath);
@@ -286,7 +303,6 @@ Result<void> AppCompositionRoot::Start(CAppShellView& shell) {
     }
 
     try {
-        // 所有順序を明示し、各Objectが参照する依存を先に生成する。
         impl_->shell_ = &shell;
         impl_->clock_ = std::make_unique<SteadyClock>();
         impl_->gateway_ = std::make_unique<
@@ -300,6 +316,8 @@ Result<void> AppCompositionRoot::Start(CAppShellView& shell) {
                 : ShelfManager::Domain::OperatorAuthorization::Denied);
         impl_->snapshotStore_ = std::make_unique<
             ShelfManager::Application::MachineSnapshotStore>();
+        impl_->operationStateStore_ = std::make_unique<
+            ShelfManager::Application::OperationStateStore>();
         impl_->assembler_ = std::make_unique<
             ShelfManager::Application::MachineSnapshotAssembler>();
         impl_->monitoringPlan_ = std::make_unique<
@@ -307,6 +325,9 @@ Result<void> AppCompositionRoot::Start(CAppShellView& shell) {
             impl_->clock_->Now());
         impl_->snapshotSink_ = std::make_unique<SnapshotMessageSink>(
             shell.GetSafeHwnd());
+        impl_->operationCompletionSink_ =
+            std::make_unique<OperationCompletionMessageSink>(
+                shell.GetSafeHwnd());
         impl_->coordinator_ = std::make_unique<
             ShelfManager::Application::MonitoringCoordinator>(
             *impl_->clock_,
@@ -315,26 +336,81 @@ Result<void> AppCompositionRoot::Start(CAppShellView& shell) {
             *impl_->assembler_,
             *impl_->snapshotStore_,
             *impl_->snapshotSink_);
-        impl_->worker_ = std::make_unique<
+        impl_->movePriorityUseCase_ = std::make_unique<
+            ShelfManager::Application::MoveWorkpiecePriorityUseCase>(
+            *impl_->snapshotStore_,
+            *impl_->gateway_,
+            *impl_->gateway_,
+            *impl_->operationStateStore_);
+        impl_->manualTransportUseCase_ = std::make_unique<
+            ShelfManager::Application::RequestManualTransportUseCase>(
+            *impl_->snapshotStore_,
+            *impl_->authorization_,
+            *impl_->gateway_,
+            *impl_->gateway_,
+            *impl_->operationStateStore_);
+        impl_->operationExecutor_ = std::make_unique<
+            ShelfManager::Application::OperationExecutor>(
+            *impl_->clock_,
+            *impl_->operationStateStore_,
+            *impl_->operationCompletionSink_);
+        impl_->monitoringWorker_ = std::make_unique<
             ShelfManager::Application::MonitoringWorker>(
             *impl_->coordinator_);
-        impl_->presenter_ = std::make_unique<
+
+        impl_->machineStatusPresenter_ = std::make_unique<
             ShelfManager::Presentation::MachineStatusPresenter>(
             shell.MachineStatusView(),
             *impl_->snapshotStore_,
             *impl_->clock_);
+        impl_->visualRackPresenter_ = std::make_unique<
+            ShelfManager::Presentation::VisualRackPresenter>(
+            shell.VisualRackView(),
+            *impl_->snapshotStore_,
+            shell.UiState(),
+            *impl_->coordinator_);
+        impl_->machiningQueuePresenter_ = std::make_unique<
+            ShelfManager::Presentation::MachiningQueuePresenter>(
+            shell.MachiningQueueView(),
+            *impl_->snapshotStore_,
+            shell.UiState(),
+            *impl_->coordinator_,
+            *impl_->operationStateStore_,
+            *impl_->operationExecutor_,
+            *impl_->movePriorityUseCase_);
+        impl_->manualTransportPresenter_ = std::make_unique<
+            ShelfManager::Presentation::ManualTransportPresenter>(
+            shell.ManualTransportView(),
+            *impl_->snapshotStore_,
+            shell.UiState(),
+            *impl_->authorization_,
+            *impl_->operationStateStore_,
+            *impl_->operationExecutor_,
+            *impl_->manualTransportUseCase_);
 
-        // PresenterをUI thread上で初期描画してからWorkerを開始する。
-        // Worker通知はPostMessage経由のため、Viewを監視Threadから直接呼ばない。
-        shell.BindMachineStatusPresenter(impl_->presenter_.get());
-        impl_->presenter_->Activate();
-        impl_->worker_->Start();
+        shell.BindMachineStatusPresenter(
+            impl_->machineStatusPresenter_.get());
+        shell.BindVisualRackPresenter(
+            impl_->visualRackPresenter_.get());
+        shell.BindMachiningQueuePresenter(
+            impl_->machiningQueuePresenter_.get());
+        shell.BindManualTransportPresenter(
+            impl_->manualTransportPresenter_.get());
+        shell.BindOperationServices(
+            impl_->operationCompletionSink_.get(),
+            impl_->operationStateStore_.get(),
+            impl_->clock_.get());
+
+        impl_->machineStatusPresenter_->Activate();
+        impl_->visualRackPresenter_->Activate();
+        impl_->machiningQueuePresenter_->Activate();
+        impl_->manualTransportPresenter_->Activate();
+        impl_->monitoringWorker_->Start();
         impl_->running_ = true;
 
         if (options.Value().smokeExitMilliseconds.has_value() &&
             !shell.ScheduleSmokeExit(
                 *options.Value().smokeExitMilliseconds)) {
-            // Smoke Timerを設定できなければ無期限にCIを待たせず、開始済み依存を停止する。
             impl_->Stop();
             return Result<void>::Failure(
                 {ErrorCode::InternalFailure,
@@ -342,7 +418,6 @@ Result<void> AppCompositionRoot::Start(CAppShellView& shell) {
         }
     } catch (const std::exception& error) {
         impl_->Stop();
-        // error.what()は起動診断用Errorへ閉じ込め、通常画面へ直接表示しない。
         return Failure<void>(
             ErrorCode::InternalFailure,
             std::string("Could not initialize the application composition: ") +
