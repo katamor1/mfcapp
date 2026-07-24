@@ -15,7 +15,7 @@ namespace ShelfManager::Infrastructure::Fake {
 // CSVまたはFakeScenarioの時系列Snapshotと要求記録を提供する開発用Gateway。
 // IMachineStateReader／IMachineCommandGatewayのApplication契約を再現するが、
 // COM apartment、Ethernet、BSTR、ベンダーtimeout、物理搬送は再現しない。
-// Scenarioの次Frameへ進むと、そのFrameのSnapshotがFake内変更を置き換える。
+// Scenarioの次Frameへ進むと、そのFrameのSnapshotとOnDemand詳細がFake内変更を置き換える。
 //
 // THREAD: 状態読書きと観測用記録は内部mutexで直列化する。
 // 設定遅延中はmutexを保持しないため、複数呼出しの待機時間自体は重なり得る。
@@ -31,7 +31,7 @@ public:
         std::chrono::milliseconds latency = std::chrono::milliseconds::zero());
 
     // 現在時刻に対応するFrameへ同期し、要求されたMonitoringClassのFragmentを返す。
-    // CriticalはMachineHealth、Standard／OnDemandは棚・Workpiece・搬送先を返す。
+    // CriticalはMachineHealth、Standardは棚・Workpiece・搬送先、OnDemandは対象詳細を返す。
     [[nodiscard]] ShelfManager::Domain::Result<
         ShelfManager::Application::MachineSnapshotFragment>
     Read(const ShelfManager::Application::MonitoringRequest& request) override;
@@ -78,6 +78,7 @@ private:
     std::chrono::milliseconds latency_;
     std::size_t activeFrameIndex_;
     ShelfManager::Domain::MachineSnapshot state_;
+    std::vector<ShelfManager::Domain::WorkpieceDetail> workpieceDetails_;
     std::vector<ShelfManager::Application::TransportRequest> transportRequests_;
     std::size_t priorityChangeCallCount_{0U};
     std::size_t transportCallCount_{0U};
