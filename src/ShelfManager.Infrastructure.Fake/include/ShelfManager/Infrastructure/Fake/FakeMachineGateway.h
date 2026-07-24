@@ -15,6 +15,7 @@ namespace ShelfManager::Infrastructure::Fake {
 // CSVまたはFakeScenarioの時系列Snapshotと要求記録を提供する開発用Gateway。
 // IMachineStateReader／IMachineCommandGatewayのApplication契約を再現するが、
 // COM apartment、Ethernet、BSTR、ベンダーtimeout、物理搬送は再現しない。
+// Scenarioの次Frameへ進むと、そのFrameのSnapshotがFake内変更を置き換える。
 //
 // THREAD: 公開操作は内部mutexで直列化する。設定遅延中はmutexを保持しない。
 // SAFETY: DisconnectedまたはStaleなFrameでは変更要求を拒否する。
