@@ -17,8 +17,8 @@ void SnapshotMessageSink::OnSnapshotPublished(
 
     // WHY: VersionとFlagは再描画診断用のHintに限定し、Message滞留中に新しい
     // Snapshotが公開されても、UIはStoreの最新値へ一度で収束できるようにする。
-    // Win32でもMessage値に収まるprocess内世代だけを通知し、Snapshot本体の
-    // 所有権や寿命をWindow Messageへ持ち込まない。
+    // Snapshot本体の所有権や寿命をWindow Messageへ持ち込まない。Win32でVersionが
+    // WPARAM幅へ切り詰められても、受信側は一致判定に使わないため状態判断へ影響しない。
     static_cast<void>(::PostMessageW(
         targetWindow_,
         WM_APP_SNAPSHOT_CHANGED,
