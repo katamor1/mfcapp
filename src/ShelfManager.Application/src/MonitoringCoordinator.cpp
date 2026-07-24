@@ -60,6 +60,11 @@ void MonitoringCoordinator::RequestOnDemand(
 
 void MonitoringCoordinator::RequestWorkpieceDetail(
     std::optional<ShelfManager::Domain::WorkpieceId> selectedWorkpiece) {
+    // 選択解除はPresentation側で詳細を非表示にするだけで成立する。
+    // 対象なしのOnDemand要求をReaderへ送り、InvalidArgumentを発生させない。
+    if (!selectedWorkpiece.has_value()) {
+        return;
+    }
     plan_.RequestOnDemand(std::move(selectedWorkpiece));
 }
 
