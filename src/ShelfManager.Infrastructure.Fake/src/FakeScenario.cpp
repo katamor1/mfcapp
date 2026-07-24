@@ -21,6 +21,14 @@ QueuePriority Priority(const std::uint32_t value) {
     return result.Value();
 }
 
+InstructionOrder Order(const std::uint32_t value) {
+    auto result = InstructionOrder::Create(value);
+    if (!result.HasValue()) {
+        throw std::logic_error("Fake scenario contains an invalid instruction order.");
+    }
+    return result.Value();
+}
+
 RackLayout Layout() {
     auto result = RackLayout::Create({3U});
     if (!result.HasValue()) {
@@ -41,6 +49,31 @@ WorkpieceSummary Workpiece(
         Priority(priority),
         status,
         MachiningInstructionName(std::move(firstInstruction))};
+}
+
+WorkpieceDetail Detail(
+    const std::uint64_t id,
+    std::vector<std::string> names) {
+    std::vector<MachiningInstructionRef> instructions;
+    instructions.reserve(names.size());
+    for (std::size_t index = 0U; index < names.size(); ++index) {
+        instructions.push_back(MachiningInstructionRef{
+            MachiningInstructionName(std::move(names[index])),
+            Order(static_cast<std::uint32_t>(index + 1U))});
+    }
+    auto sequence = MachiningInstructionSequence::Create(
+        std::move(instructions));
+    if (!sequence.HasValue()) {
+        throw std::logic_error("Fake scenario contains invalid instructions.");
+    }
+    return WorkpieceDetail{WorkpieceId(id), sequence.Value()};
+}
+
+std::vector<WorkpieceDetail> Details() {
+    return {
+        Detail(1U, {"work-1.nc", "work-1-finish.nc"}),
+        Detail(2U, {"work-2.nc"}),
+        Detail(3U, {"work-3.nc"})};
 }
 
 std::vector<DestinationState> Destinations() {
@@ -142,7 +175,8 @@ FakeScenario FakeScenario::StandardDemo() {
                      WorkpieceStatus::WaitingForMachining,
                      RackSlot{1U, 1U},
                      DataFreshnessState::Fresh,
-                     0ms)},
+                     0ms),
+            Details()},
         FakeScenarioFrame{
             1000ms,
             Snapshot(2U,
@@ -151,7 +185,8 @@ FakeScenario FakeScenario::StandardDemo() {
                      WorkpieceStatus::Machining,
                      MachiningStationLocation{1U},
                      DataFreshnessState::Fresh,
-                     1000ms)},
+                     1000ms),
+            Details()},
         FakeScenarioFrame{
             1500ms,
             Snapshot(3U,
@@ -160,7 +195,8 @@ FakeScenario FakeScenario::StandardDemo() {
                      WorkpieceStatus::InterruptedAbnormally,
                      RackSlot{1U, 1U},
                      DataFreshnessState::Fresh,
-                     1500ms)},
+                     1500ms),
+            Details()},
         FakeScenarioFrame{
             2000ms,
             Snapshot(4U,
@@ -169,7 +205,8 @@ FakeScenario FakeScenario::StandardDemo() {
                      WorkpieceStatus::InterruptedAbnormally,
                      RackSlot{1U, 1U},
                      DataFreshnessState::Stale,
-                     1500ms)},
+                     1500ms),
+            Details()},
         FakeScenarioFrame{
             3000ms,
             Snapshot(5U,
@@ -178,7 +215,8 @@ FakeScenario FakeScenario::StandardDemo() {
                      WorkpieceStatus::InterruptedAbnormally,
                      RackSlot{1U, 1U},
                      DataFreshnessState::Fresh,
-                     3000ms)}});
+                     3000ms),
+            Details()}});
 
     if (!scenario.HasValue()) {
         throw std::logic_error("The standard fake scenario is invalid.");

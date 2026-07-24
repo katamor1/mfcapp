@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     name: ${{ matrix.configuration }} ${{ matrix.target.solution_platform }}
@@ -139,3 +143,18 @@ jobs:
             & $path
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+
+      - name: Run MFC smoke test
+        shell: pwsh
+        run: |
+          $outputDirectory = Join-Path $PWD "out\${{ matrix.target.project_platform }}\${{ matrix.configuration }}"
+          $application = Join-Path $outputDirectory "mfcapp.exe"
+          $mockCsv = Join-Path $PWD "config\mock\machine-responses.csv"
+          if (-not (Test-Path $application -PathType Leaf)) {
+            throw "Missing MFC executable: $application"
+          }
+          if (-not (Test-Path $mockCsv -PathType Leaf)) {
+            throw "Missing mock CSV: $mockCsv"
+          }
+          & $application "--mock-csv=$mockCsv" "--smoke-exit-ms=1500"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

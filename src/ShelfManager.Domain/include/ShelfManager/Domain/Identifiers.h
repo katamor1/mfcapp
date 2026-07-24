@@ -6,6 +6,8 @@
 
 namespace ShelfManager::Domain {
 
+// 機械および業務データでWorkpieceを識別する値型。
+// 数値の採番規則や0の可否は外部契約側で検証し、この型は他のIDとの混同を防ぐ。
 class WorkpieceId final {
 public:
     explicit constexpr WorkpieceId(std::uint64_t value) noexcept : value_(value) {}
@@ -54,6 +56,8 @@ private:
     std::uint64_t value_;
 };
 
+// 加工待ちキュー内の1始まりの順位。
+// 0は未設定値としても受け付けず、CreateでInvalidArgumentを返す。
 class QueuePriority final {
 public:
     static Result<QueuePriority> Create(std::uint32_t value) {
@@ -110,6 +114,8 @@ private:
     std::uint32_t value_;
 };
 
+// 一つのWorkpieceに紐付く加工指示書の1始まりの実行順。
+// MachiningInstructionSequenceは重複を拒否するが、欠番の有無は外部契約へ委ねる。
 class InstructionOrder final {
 public:
     static Result<InstructionOrder> Create(std::uint32_t value) {
@@ -166,6 +172,8 @@ private:
     std::uint32_t value_;
 };
 
+// Application process内で公開Snapshotの世代を比較する楽観排他Token。
+// 機械側のVersionや永続データではなく、再起動をまたぐ連続性を保証しない。
 class SnapshotVersion final {
 public:
     explicit constexpr SnapshotVersion(std::uint64_t value = 0U) noexcept : value_(value) {}

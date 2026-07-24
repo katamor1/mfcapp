@@ -64,10 +64,9 @@ std::optional<OperationRecord> OperationStateStore::Find(
         records_.begin(),
         records_.end(),
         [id](const auto& candidate) { return candidate.id == id; });
-    if (record == records_.end()) {
-        return std::nullopt;
-    }
-    return *record;
+    return record == records_.end()
+               ? std::nullopt
+               : std::optional<OperationRecord>{*record};
 }
 
 bool OperationStateStore::HasRunningOperationFor(
@@ -78,6 +77,21 @@ bool OperationStateStore::HasRunningOperationFor(
         records_.end(),
         [workpieceId](const auto& record) {
             return record.phase == OperationPhase::Running &&
+                   record.workpieceId.has_value() &&
+                   *record.workpieceId == workpieceId;
+        });
+}
+
+bool OperationStateStore::HasOtherRunningOperationFor(
+    const ShelfManager::Domain::WorkpieceId workpieceId,
+    const OperationId excludedOperationId) const {
+    std::scoped_lock lock(mutex_);
+    return std::any_of(
+        records_.begin(),
+        records_.end(),
+        [workpieceId, excludedOperationId](const auto& record) {
+            return record.id != excludedOperationId &&
+                   record.phase == OperationPhase::Running &&
                    record.workpieceId.has_value() &&
                    *record.workpieceId == workpieceId;
         });

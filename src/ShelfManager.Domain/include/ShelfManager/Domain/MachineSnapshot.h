@@ -11,9 +11,12 @@
 #include "ShelfManager/Domain/Result.h"
 #include "ShelfManager/Domain/Status.h"
 #include "ShelfManager/Domain/Time.h"
+#include "ShelfManager/Domain/WorkpieceDetail.h"
 
 namespace ShelfManager::Domain {
 
+// 一覧・ビジュアル表示と操作判定に必要なWorkpieceの要約。
+// firstInstructionは先頭の表示用情報であり、最大10件の完全な指示書列を表さない。
 struct WorkpieceSummary final {
     WorkpieceId id;
     WorkpieceLocation location;
@@ -36,6 +39,8 @@ struct WorkpieceSummary final {
     }
 };
 
+// 機械状態帯と操作可否判定に使用する機械の健康状態。
+// messageは機械由来の診断文字列であり、そのままオペレーター向け文言として表示しない。
 struct MachineHealth final {
     MachineConnectionState connectionState;
     MachineMode mode;
@@ -60,6 +65,8 @@ struct MachineHealth final {
     }
 };
 
+// Snapshot内データの鮮度と直近通信結果。
+// lastSuccessfulReadはsteady clock系のTimePointで、日時表示や永続化には使用しない。
 struct DataFreshness final {
     DataFreshnessState state;
     TimePoint lastSuccessfulRead;
@@ -80,6 +87,9 @@ struct DataFreshness final {
     }
 };
 
+// 画面とUse Caseが共有する、ある時点の機械状態の一貫した読取モデル。
+// MachineSnapshotStoreへ公開後は変更せず、新しい状態は新しいversionのSnapshotとして作る。
+// capturedAtは組立時刻であり、各データ項目が同時刻に機械で更新されたことは保証しない。
 struct MachineSnapshot final {
     SnapshotVersion version;
     TimePoint capturedAt;
@@ -89,6 +99,10 @@ struct MachineSnapshot final {
     std::vector<WorkpieceSummary> workpieces;
     std::vector<DestinationState> destinations;
     DataFreshness freshness;
+
+    // 最後に正常取得したOnDemand詳細。選択中WorkpieceとIDが一致する場合だけ表示する。
+    // nulloptは詳細未取得を示し、一覧情報の欠落やWorkpiece不在を意味しない。
+    std::optional<WorkpieceDetail> workpieceDetail{};
 
     friend bool operator==(
         const MachineSnapshot& left,
@@ -100,7 +114,8 @@ struct MachineSnapshot final {
                left.rackState == right.rackState &&
                left.workpieces == right.workpieces &&
                left.destinations == right.destinations &&
-               left.freshness == right.freshness;
+               left.freshness == right.freshness &&
+               left.workpieceDetail == right.workpieceDetail;
     }
 
     friend bool operator!=(

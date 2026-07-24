@@ -53,6 +53,9 @@ SnapshotAssemblyOutcome MachineSnapshotAssembler::AcceptSuccess(
     if (fragment.destinations.has_value()) {
         destinations_ = fragment.destinations;
     }
+    if (fragment.workpieceDetail.has_value()) {
+        workpieceDetail_ = fragment.workpieceDetail;
+    }
 
     switch (monitoringClass) {
         case MonitoringClass::Critical:
@@ -122,6 +125,9 @@ SnapshotAssemblyOutcome MachineSnapshotAssembler::TryAssemble(
     SnapshotChangeFlag flags = SnapshotChangeFlag::None;
     if (!current_) {
         flags = InitialFlags();
+        if (workpieceDetail_.has_value()) {
+            flags |= SnapshotChangeFlag::WorkpieceDetail;
+        }
     } else {
         if (current_->health != *health_) {
             flags |= SnapshotChangeFlag::Health;
@@ -141,6 +147,9 @@ SnapshotAssemblyOutcome MachineSnapshotAssembler::TryAssemble(
         if (!FreshnessEquivalent(current_->freshness, freshness)) {
             flags |= SnapshotChangeFlag::Freshness;
         }
+        if (current_->workpieceDetail != workpieceDetail_) {
+            flags |= SnapshotChangeFlag::WorkpieceDetail;
+        }
     }
 
     if (flags == SnapshotChangeFlag::None) {
@@ -158,7 +167,8 @@ SnapshotAssemblyOutcome MachineSnapshotAssembler::TryAssemble(
         *rackState_,
         *workpieces_,
         *destinations_,
-        freshness});
+        freshness,
+        workpieceDetail_});
     current_ = snapshot;
     return {std::move(snapshot), flags};
 }

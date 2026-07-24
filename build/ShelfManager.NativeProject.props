@@ -14,14 +14,14 @@
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
-    <UseOfMfc Condition="'$(ShelfManagerUseMfc)'=='true'">Static</UseOfMfc>
+    <UseOfMfc Condition="'$(ShelfManagerUseMfc)'=='true'">Dynamic</UseOfMfc>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
     <ConfigurationType>$(ShelfManagerConfigurationType)</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
-    <UseOfMfc Condition="'$(ShelfManagerUseMfc)'=='true'">Static</UseOfMfc>
+    <UseOfMfc Condition="'$(ShelfManagerUseMfc)'=='true'">Dynamic</UseOfMfc>
     <WholeProgramOptimization>true</WholeProgramOptimization>
   </PropertyGroup>
 

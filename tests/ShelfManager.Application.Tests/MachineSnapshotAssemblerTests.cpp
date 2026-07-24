@@ -24,6 +24,12 @@ QueuePriority Priority(const std::uint32_t value) {
     return result.Value();
 }
 
+InstructionOrder Order(const std::uint32_t value) {
+    auto result = InstructionOrder::Create(value);
+    EXPECT_TRUE(result.HasValue());
+    return result.Value();
+}
+
 MachineSnapshotFragment CriticalFragment(
     const TimePoint at,
     const MachineConnectionState state = MachineConnectionState::Connected,
@@ -58,6 +64,16 @@ MachineSnapshotFragment StandardFragment(
         DataFreshness{freshness, at, std::nullopt}};
 }
 
+WorkpieceDetail Detail(
+    const WorkpieceId id,
+    const char* instructionName) {
+    auto sequence = MachiningInstructionSequence::Create(
+        {MachiningInstructionRef{
+            MachiningInstructionName(instructionName), Order(1U)}});
+    EXPECT_TRUE(sequence.HasValue());
+    return WorkpieceDetail{id, sequence.Value()};
+}
+
 TEST(MachineSnapshotAssemblerTests, InitialPublishRequiresCriticalAndStandard) {
     MachineSnapshotAssembler assembler;
     const TimePoint at{1s};
@@ -72,6 +88,36 @@ TEST(MachineSnapshotAssemblerTests, InitialPublishRequiresCriticalAndStandard) {
     EXPECT_EQ(1U, standard.snapshot->version.Value());
     EXPECT_TRUE(HasFlag(standard.changeFlags, SnapshotChangeFlag::Health));
     EXPECT_TRUE(HasFlag(standard.changeFlags, SnapshotChangeFlag::Workpieces));
+}
+
+TEST(MachineSnapshotAssemblerTests, OnDemandDetailPublishesOnlyWhenItChanges) {
+    MachineSnapshotAssembler assembler;
+    const TimePoint at{1s};
+    static_cast<void>(assembler.AcceptSuccess(
+        MonitoringClass::Critical, CriticalFragment(at), at));
+    static_cast<void>(assembler.AcceptSuccess(
+        MonitoringClass::Standard, StandardFragment(at), at));
+
+    auto onDemand = MachineSnapshotFragment{
+        std::nullopt,
+        std::nullopt,
+        std::nullopt,
+        std::nullopt,
+        std::nullopt,
+        DataFreshness{DataFreshnessState::Fresh, at, std::nullopt}};
+    onDemand.workpieceDetail = Detail(WorkpieceId(1U), "work-1.nc");
+
+    const auto first = assembler.AcceptSuccess(
+        MonitoringClass::OnDemand, onDemand, at + 1ms);
+    ASSERT_TRUE(first.HasSnapshot());
+    ASSERT_TRUE(first.snapshot->workpieceDetail.has_value());
+    EXPECT_EQ(WorkpieceId(1U), first.snapshot->workpieceDetail->id);
+    EXPECT_TRUE(HasFlag(
+        first.changeFlags, SnapshotChangeFlag::WorkpieceDetail));
+
+    const auto unchanged = assembler.AcceptSuccess(
+        MonitoringClass::OnDemand, onDemand, at + 2ms);
+    EXPECT_FALSE(unchanged.HasSnapshot());
 }
 
 TEST(MachineSnapshotAssemblerTests, FailureRetainsValuesAndMarksStale) {

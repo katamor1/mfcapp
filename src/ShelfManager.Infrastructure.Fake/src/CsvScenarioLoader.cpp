@@ -19,6 +19,7 @@
 
 #include "ShelfManager/Domain/MachiningInstruction.h"
 #include "ShelfManager/Domain/MachiningQueue.h"
+#include "ShelfManager/Domain/WorkpieceDetail.h"
 #include "ShelfManager/Infrastructure/Fake/ProvisionalDataIds.h"
 
 namespace ShelfManager::Infrastructure::Fake {
@@ -37,16 +38,12 @@ struct DataAddress final {
         return left.dataId == right.dataId && left.subId1 == right.subId1 &&
                left.subId2 == right.subId2;
     }
-
-    friend bool operator!=(
-        const DataAddress& left,
-        const DataAddress& right) noexcept {
-        return !(left == right);
-    }
 };
 
 struct DataAddressLess final {
-    bool operator()(const DataAddress& left, const DataAddress& right) const noexcept {
+    bool operator()(
+        const DataAddress& left,
+        const DataAddress& right) const noexcept {
         if (left.dataId != right.dataId) {
             return left.dataId < right.dataId;
         }
@@ -127,7 +124,8 @@ Result<std::vector<std::string>> ParseCsvFields(
                 fields.push_back(std::move(field));
                 field.clear();
                 closedQuote = false;
-            } else if (std::isspace(static_cast<unsigned char>(character)) == 0) {
+            } else if (std::isspace(
+                           static_cast<unsigned char>(character)) == 0) {
                 return Failure<std::vector<std::string>>(
                     ErrorCode::InvalidArgument,
                     "CSV line " + std::to_string(lineNumber) +
@@ -166,14 +164,11 @@ Result<std::vector<std::string>> ParseCsvFields(
 template <class T>
 Result<T> ParseUnsigned(
     const std::string_view text,
-    const std::string_view fieldName,
-    const std::size_t lineNumber) {
+    const ErrorCode errorCode,
+    std::string context) {
     const auto trimmed = Trim(text);
     if (trimmed.empty()) {
-        return Failure<T>(
-            ErrorCode::InvalidArgument,
-            "CSV line " + std::to_string(lineNumber) + " has an empty " +
-                std::string(fieldName) + ".");
+        return Failure<T>(errorCode, std::move(context) + " is empty.");
     }
 
     T value{};
@@ -181,10 +176,7 @@ Result<T> ParseUnsigned(
     const auto* end = begin + trimmed.size();
     const auto parsed = std::from_chars(begin, end, value);
     if (parsed.ec != std::errc{} || parsed.ptr != end) {
-        return Failure<T>(
-            ErrorCode::InvalidArgument,
-            "CSV line " + std::to_string(lineNumber) + " has an invalid " +
-                std::string(fieldName) + ".");
+        return Failure<T>(errorCode, std::move(context) + " is invalid.");
     }
     return Result<T>::Success(value);
 }
@@ -214,7 +206,8 @@ Result<std::vector<CsvRow>> ReadRows(std::istream& input) {
 
         const auto parsedFields = ParseCsvFields(line, lineNumber);
         if (!parsedFields.HasValue()) {
-            return Result<std::vector<CsvRow>>::Failure(parsedFields.ErrorValue());
+            return Result<std::vector<CsvRow>>::Failure(
+                parsedFields.ErrorValue());
         }
         const auto& fields = parsedFields.Value();
 
@@ -242,37 +235,45 @@ Result<std::vector<CsvRow>> ReadRows(std::istream& input) {
                     " must contain exactly five fields.");
         }
 
-        const auto offsetValue = ParseUnsigned<std::uint64_t>(
-            fields[0], "at_ms", lineNumber);
-        const auto dataIdValue = ParseUnsigned<std::uint32_t>(
-            fields[1], "data_id", lineNumber);
-        const auto subId1Value = ParseUnsigned<std::uint64_t>(
-            fields[2], "sub_id1", lineNumber);
-        const auto subId2Value = ParseUnsigned<std::uint64_t>(
-            fields[3], "sub_id2", lineNumber);
-        if (!offsetValue.HasValue()) {
-            return Result<std::vector<CsvRow>>::Failure(offsetValue.ErrorValue());
+        const auto offset = ParseUnsigned<std::uint64_t>(
+            fields[0],
+            ErrorCode::InvalidArgument,
+            "CSV line " + std::to_string(lineNumber) + " at_ms");
+        const auto dataId = ParseUnsigned<std::uint32_t>(
+            fields[1],
+            ErrorCode::InvalidArgument,
+            "CSV line " + std::to_string(lineNumber) + " data_id");
+        const auto subId1 = ParseUnsigned<std::uint64_t>(
+            fields[2],
+            ErrorCode::InvalidArgument,
+            "CSV line " + std::to_string(lineNumber) + " sub_id1");
+        const auto subId2 = ParseUnsigned<std::uint64_t>(
+            fields[3],
+            ErrorCode::InvalidArgument,
+            "CSV line " + std::to_string(lineNumber) + " sub_id2");
+        if (!offset.HasValue()) {
+            return Result<std::vector<CsvRow>>::Failure(offset.ErrorValue());
         }
-        if (!dataIdValue.HasValue()) {
-            return Result<std::vector<CsvRow>>::Failure(dataIdValue.ErrorValue());
+        if (!dataId.HasValue()) {
+            return Result<std::vector<CsvRow>>::Failure(dataId.ErrorValue());
         }
-        if (!subId1Value.HasValue()) {
-            return Result<std::vector<CsvRow>>::Failure(subId1Value.ErrorValue());
+        if (!subId1.HasValue()) {
+            return Result<std::vector<CsvRow>>::Failure(subId1.ErrorValue());
         }
-        if (!subId2Value.HasValue()) {
-            return Result<std::vector<CsvRow>>::Failure(subId2Value.ErrorValue());
+        if (!subId2.HasValue()) {
+            return Result<std::vector<CsvRow>>::Failure(subId2.ErrorValue());
         }
 
-        if (dataIdValue.Value() <
+        if (dataId.Value() <
                 ToDataId(ProvisionalDataId::MachineConnectionState) ||
-            dataIdValue.Value() >
+            dataId.Value() >
                 ToDataId(ProvisionalDataId::ManualTransportRequest)) {
             return Failure<std::vector<CsvRow>>(
                 ErrorCode::InvalidArgument,
                 "CSV line " + std::to_string(lineNumber) +
                     " uses an unregistered provisional data ID.");
         }
-        if (offsetValue.Value() >
+        if (offset.Value() >
             static_cast<std::uint64_t>(
                 std::numeric_limits<std::chrono::milliseconds::rep>::max())) {
             return Failure<std::vector<CsvRow>>(
@@ -283,8 +284,8 @@ Result<std::vector<CsvRow>> ReadRows(std::istream& input) {
 
         rows.push_back(CsvRow{
             std::chrono::milliseconds(
-                static_cast<std::chrono::milliseconds::rep>(offsetValue.Value())),
-            DataAddress{dataIdValue.Value(), subId1Value.Value(), subId2Value.Value()},
+                static_cast<std::chrono::milliseconds::rep>(offset.Value())),
+            DataAddress{dataId.Value(), subId1.Value(), subId2.Value()},
             fields[4],
             lineNumber});
     }
@@ -335,9 +336,10 @@ Result<std::string> Lookup(
     if (match == responses.end()) {
         return Failure<std::string>(
             ErrorCode::InvalidResponse,
-            "Missing CSV response for dataId=" + std::to_string(address.dataId) +
-                ", subId1=" + std::to_string(address.subId1) +
-                ", subId2=" + std::to_string(address.subId2) + ".");
+            "Missing CSV response for dataId=" +
+                std::to_string(address.dataId) + ", subId1=" +
+                std::to_string(address.subId1) + ", subId2=" +
+                std::to_string(address.subId2) + ".");
     }
     return Result<std::string>::Success(match->second);
 }
@@ -347,18 +349,14 @@ Result<std::uint64_t> ReadUnsignedValue(
     const ProvisionalDataId dataId,
     const std::uint64_t subId1 = 0U,
     const std::uint64_t subId2 = 0U) {
-    const auto value = Lookup(responses, dataId, subId1, subId2);
-    if (!value.HasValue()) {
-        return Result<std::uint64_t>::Failure(value.ErrorValue());
+    const auto text = Lookup(responses, dataId, subId1, subId2);
+    if (!text.HasValue()) {
+        return Result<std::uint64_t>::Failure(text.ErrorValue());
     }
-    const auto parsed = ParseUnsigned<std::uint64_t>(value.Value(), "value", 0U);
-    if (!parsed.HasValue()) {
-        return Failure<std::uint64_t>(
-            ErrorCode::InvalidResponse,
-            "Invalid unsigned CSV value for dataId=" +
-                std::to_string(ToDataId(dataId)) + ".");
-    }
-    return parsed;
+    return ParseUnsigned<std::uint64_t>(
+        text.Value(),
+        ErrorCode::InvalidResponse,
+        "CSV value for dataId=" + std::to_string(ToDataId(dataId)));
 }
 
 Result<bool> ReadBoolean(
@@ -377,11 +375,14 @@ Result<bool> ReadBoolean(
     }
     return Failure<bool>(
         ErrorCode::InvalidResponse,
-        "Boolean CSV response must be 0, 1, false, or true.");
+        "CSV boolean value is not recognized.");
 }
 
-Result<MachineConnectionState> ReadConnectionState(const ResponseMap& responses) {
-    const auto value = Lookup(responses, ProvisionalDataId::MachineConnectionState);
+Result<MachineConnectionState> ReadConnectionState(
+    const ResponseMap& responses) {
+    const auto value = Lookup(
+        responses,
+        ProvisionalDataId::MachineConnectionState);
     if (!value.HasValue()) {
         return Result<MachineConnectionState>::Failure(value.ErrorValue());
     }
@@ -416,7 +417,8 @@ Result<MachineMode> ReadMachineMode(const ResponseMap& responses) {
     if (normalized == "manual") {
         return Result<MachineMode>::Success(MachineMode::Manual);
     }
-    if (normalized == "automatic_scheduled") {
+    if (normalized == "automatic" ||
+        normalized == "automatic_scheduled") {
         return Result<MachineMode>::Success(MachineMode::AutomaticScheduled);
     }
     if (normalized == "unknown") {
@@ -431,12 +433,15 @@ Result<WorkpieceStatus> ReadWorkpieceStatus(
     const ResponseMap& responses,
     const std::uint64_t workpieceId) {
     const auto value = Lookup(
-        responses, ProvisionalDataId::WorkpieceStatus, workpieceId);
+        responses,
+        ProvisionalDataId::WorkpieceStatus,
+        workpieceId);
     if (!value.HasValue()) {
         return Result<WorkpieceStatus>::Failure(value.ErrorValue());
     }
     const auto normalized = LowerAscii(Trim(value.Value()));
-    if (normalized == "waiting") {
+    if (normalized == "waiting" ||
+        normalized == "waiting_for_machining") {
         return Result<WorkpieceStatus>::Success(
             WorkpieceStatus::WaitingForMachining);
     }
@@ -446,11 +451,12 @@ Result<WorkpieceStatus> ReadWorkpieceStatus(
     if (normalized == "completed") {
         return Result<WorkpieceStatus>::Success(WorkpieceStatus::Completed);
     }
-    if (normalized == "interrupted_abnormally") {
+    if (normalized == "interrupted" ||
+        normalized == "interrupted_abnormally") {
         return Result<WorkpieceStatus>::Success(
             WorkpieceStatus::InterruptedAbnormally);
     }
-    if (normalized == "in_transport") {
+    if (normalized == "transport" || normalized == "in_transport") {
         return Result<WorkpieceStatus>::Success(WorkpieceStatus::InTransport);
     }
     if (normalized == "unknown") {
@@ -554,12 +560,16 @@ Result<TransportDestination> ReadDestination(
     const ResponseMap& responses,
     const std::uint64_t destinationIndex) {
     const auto typeValue = Lookup(
-        responses, ProvisionalDataId::DestinationType, destinationIndex);
+        responses,
+        ProvisionalDataId::DestinationType,
+        destinationIndex);
     if (!typeValue.HasValue()) {
         return Result<TransportDestination>::Failure(typeValue.ErrorValue());
     }
     const auto primary = ReadUnsignedValue(
-        responses, ProvisionalDataId::DestinationPrimary, destinationIndex);
+        responses,
+        ProvisionalDataId::DestinationPrimary,
+        destinationIndex);
     if (!primary.HasValue()) {
         return Result<TransportDestination>::Failure(primary.ErrorValue());
     }
@@ -596,7 +606,7 @@ Result<TransportDestination> ReadDestination(
         "Unknown destination type in CSV response.");
 }
 
-Result<std::optional<MachiningInstructionName>> ReadFirstInstruction(
+Result<MachiningInstructionSequence> ReadInstructions(
     const ResponseMap& responses,
     const std::uint64_t workpieceId) {
     const auto count = ReadUnsignedValue(
@@ -604,17 +614,13 @@ Result<std::optional<MachiningInstructionName>> ReadFirstInstruction(
         ProvisionalDataId::WorkpieceInstructionCount,
         workpieceId);
     if (!count.HasValue()) {
-        return Result<std::optional<MachiningInstructionName>>::Failure(
+        return Result<MachiningInstructionSequence>::Failure(
             count.ErrorValue());
     }
     if (count.Value() > 10U) {
-        return Failure<std::optional<MachiningInstructionName>>(
+        return Failure<MachiningInstructionSequence>(
             ErrorCode::InvalidResponse,
             "A CSV workpiece contains more than ten instructions.");
-    }
-    if (count.Value() == 0U) {
-        return Result<std::optional<MachiningInstructionName>>::Success(
-            std::nullopt);
     }
 
     std::vector<MachiningInstructionRef> instructions;
@@ -631,23 +637,23 @@ Result<std::optional<MachiningInstructionName>> ReadFirstInstruction(
             workpieceId,
             index);
         if (!name.HasValue()) {
-            return Result<std::optional<MachiningInstructionName>>::Failure(
+            return Result<MachiningInstructionSequence>::Failure(
                 name.ErrorValue());
         }
         if (!orderValue.HasValue()) {
-            return Result<std::optional<MachiningInstructionName>>::Failure(
+            return Result<MachiningInstructionSequence>::Failure(
                 orderValue.ErrorValue());
         }
-        if (name.Value().empty() ||
+        if (Trim(name.Value()).empty() ||
             orderValue.Value() > std::numeric_limits<std::uint32_t>::max()) {
-            return Failure<std::optional<MachiningInstructionName>>(
+            return Failure<MachiningInstructionSequence>(
                 ErrorCode::InvalidResponse,
                 "A CSV machining instruction has an invalid name or order.");
         }
         const auto order = InstructionOrder::Create(
             static_cast<std::uint32_t>(orderValue.Value()));
         if (!order.HasValue()) {
-            return Failure<std::optional<MachiningInstructionName>>(
+            return Failure<MachiningInstructionSequence>(
                 ErrorCode::InvalidResponse,
                 order.ErrorValue().message);
         }
@@ -658,15 +664,14 @@ Result<std::optional<MachiningInstructionName>> ReadFirstInstruction(
     const auto sequence = MachiningInstructionSequence::Create(
         std::move(instructions));
     if (!sequence.HasValue()) {
-        return Failure<std::optional<MachiningInstructionName>>(
+        return Failure<MachiningInstructionSequence>(
             ErrorCode::InvalidResponse,
             sequence.ErrorValue().message);
     }
-    return Result<std::optional<MachiningInstructionName>>::Success(
-        sequence.Value().Instructions().front().name);
+    return sequence;
 }
 
-Result<MachineSnapshot> BuildSnapshot(
+Result<FakeScenarioFrame> BuildFrame(
     const ResponseMap& responses,
     const std::chrono::milliseconds offset,
     const SnapshotVersion version,
@@ -674,33 +679,36 @@ Result<MachineSnapshot> BuildSnapshot(
     const auto connection = ReadConnectionState(responses);
     const auto mode = ReadMachineMode(responses);
     const auto errorActive = ReadBoolean(
-        responses, ProvisionalDataId::MachineErrorActive);
+        responses,
+        ProvisionalDataId::MachineErrorActive);
     const auto warningActive = ReadBoolean(
-        responses, ProvisionalDataId::MachineWarningActive);
+        responses,
+        ProvisionalDataId::MachineWarningActive);
     const auto message = Lookup(responses, ProvisionalDataId::MachineMessage);
     if (!connection.HasValue()) {
-        return Result<MachineSnapshot>::Failure(connection.ErrorValue());
+        return Result<FakeScenarioFrame>::Failure(connection.ErrorValue());
     }
     if (!mode.HasValue()) {
-        return Result<MachineSnapshot>::Failure(mode.ErrorValue());
+        return Result<FakeScenarioFrame>::Failure(mode.ErrorValue());
     }
     if (!errorActive.HasValue()) {
-        return Result<MachineSnapshot>::Failure(errorActive.ErrorValue());
+        return Result<FakeScenarioFrame>::Failure(errorActive.ErrorValue());
     }
     if (!warningActive.HasValue()) {
-        return Result<MachineSnapshot>::Failure(warningActive.ErrorValue());
+        return Result<FakeScenarioFrame>::Failure(warningActive.ErrorValue());
     }
     if (!message.HasValue()) {
-        return Result<MachineSnapshot>::Failure(message.ErrorValue());
+        return Result<FakeScenarioFrame>::Failure(message.ErrorValue());
     }
 
     const auto levelCount = ReadUnsignedValue(
-        responses, ProvisionalDataId::RackLevelCount);
+        responses,
+        ProvisionalDataId::RackLevelCount);
     if (!levelCount.HasValue()) {
-        return Result<MachineSnapshot>::Failure(levelCount.ErrorValue());
+        return Result<FakeScenarioFrame>::Failure(levelCount.ErrorValue());
     }
     if (levelCount.Value() > std::numeric_limits<std::uint32_t>::max()) {
-        return Failure<MachineSnapshot>(
+        return Failure<FakeScenarioFrame>(
             ErrorCode::InvalidResponse,
             "Rack level count exceeds the supported range.");
     }
@@ -713,10 +721,12 @@ Result<MachineSnapshot> BuildSnapshot(
             ProvisionalDataId::RackPositionCount,
             level);
         if (!positionCount.HasValue()) {
-            return Result<MachineSnapshot>::Failure(positionCount.ErrorValue());
+            return Result<FakeScenarioFrame>::Failure(
+                positionCount.ErrorValue());
         }
-        if (positionCount.Value() > std::numeric_limits<std::uint32_t>::max()) {
-            return Failure<MachineSnapshot>(
+        if (positionCount.Value() >
+            std::numeric_limits<std::uint32_t>::max()) {
+            return Failure<FakeScenarioFrame>(
                 ErrorCode::InvalidResponse,
                 "Rack position count exceeds the supported range.");
         }
@@ -726,81 +736,95 @@ Result<MachineSnapshot> BuildSnapshot(
 
     const auto rackLayout = RackLayout::Create(std::move(positionsPerLevel));
     if (!rackLayout.HasValue()) {
-        return Failure<MachineSnapshot>(
+        return Failure<FakeScenarioFrame>(
             ErrorCode::InvalidResponse,
             rackLayout.ErrorValue().message);
     }
 
     const auto workpieceCount = ReadUnsignedValue(
-        responses, ProvisionalDataId::WorkpieceCount);
+        responses,
+        ProvisionalDataId::WorkpieceCount);
     if (!workpieceCount.HasValue()) {
-        return Result<MachineSnapshot>::Failure(workpieceCount.ErrorValue());
+        return Result<FakeScenarioFrame>::Failure(workpieceCount.ErrorValue());
     }
     if (workpieceCount.Value() >
         static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
-        return Failure<MachineSnapshot>(
+        return Failure<FakeScenarioFrame>(
             ErrorCode::InvalidResponse,
             "Workpiece count exceeds the supported range.");
     }
 
     std::vector<WorkpieceSummary> workpieces;
+    std::vector<WorkpieceDetail> workpieceDetails;
     workpieces.reserve(static_cast<std::size_t>(workpieceCount.Value()));
+    workpieceDetails.reserve(static_cast<std::size_t>(workpieceCount.Value()));
     for (std::uint64_t index = 1U; index <= workpieceCount.Value(); ++index) {
-        const auto workpieceIdValue = ReadUnsignedValue(
+        const auto idValue = ReadUnsignedValue(
             responses,
             ProvisionalDataId::WorkpieceIdByIndex,
             index);
-        if (!workpieceIdValue.HasValue()) {
-            return Result<MachineSnapshot>::Failure(workpieceIdValue.ErrorValue());
+        if (!idValue.HasValue()) {
+            return Result<FakeScenarioFrame>::Failure(idValue.ErrorValue());
         }
-        const WorkpieceId workpieceId(workpieceIdValue.Value());
+        const WorkpieceId workpieceId(idValue.Value());
         const auto location = ReadWorkpieceLocation(
-            responses, workpieceId.Value());
+            responses,
+            workpieceId.Value());
         const auto priorityValue = ReadUnsignedValue(
             responses,
             ProvisionalDataId::WorkpiecePriority,
             workpieceId.Value());
         const auto status = ReadWorkpieceStatus(
-            responses, workpieceId.Value());
-        const auto firstInstruction = ReadFirstInstruction(
-            responses, workpieceId.Value());
+            responses,
+            workpieceId.Value());
+        const auto instructions = ReadInstructions(
+            responses,
+            workpieceId.Value());
         if (!location.HasValue()) {
-            return Result<MachineSnapshot>::Failure(location.ErrorValue());
+            return Result<FakeScenarioFrame>::Failure(location.ErrorValue());
         }
         if (!priorityValue.HasValue()) {
-            return Result<MachineSnapshot>::Failure(priorityValue.ErrorValue());
+            return Result<FakeScenarioFrame>::Failure(priorityValue.ErrorValue());
         }
         if (!status.HasValue()) {
-            return Result<MachineSnapshot>::Failure(status.ErrorValue());
+            return Result<FakeScenarioFrame>::Failure(status.ErrorValue());
         }
-        if (!firstInstruction.HasValue()) {
-            return Result<MachineSnapshot>::Failure(
-                firstInstruction.ErrorValue());
+        if (!instructions.HasValue()) {
+            return Result<FakeScenarioFrame>::Failure(
+                instructions.ErrorValue());
         }
-        if (priorityValue.Value() > std::numeric_limits<std::uint32_t>::max()) {
-            return Failure<MachineSnapshot>(
+        if (priorityValue.Value() >
+            std::numeric_limits<std::uint32_t>::max()) {
+            return Failure<FakeScenarioFrame>(
                 ErrorCode::InvalidResponse,
                 "Workpiece priority exceeds the supported range.");
         }
         const auto priority = QueuePriority::Create(
             static_cast<std::uint32_t>(priorityValue.Value()));
         if (!priority.HasValue()) {
-            return Failure<MachineSnapshot>(
+            return Failure<FakeScenarioFrame>(
                 ErrorCode::InvalidResponse,
                 priority.ErrorValue().message);
         }
 
+        std::optional<MachiningInstructionName> firstInstruction;
+        if (!instructions.Value().Instructions().empty()) {
+            firstInstruction =
+                instructions.Value().Instructions().front().name;
+        }
         workpieces.push_back(WorkpieceSummary{
             workpieceId,
             location.Value(),
             priority.Value(),
             status.Value(),
-            firstInstruction.Value()});
+            std::move(firstInstruction)});
+        workpieceDetails.push_back(
+            WorkpieceDetail{workpieceId, instructions.Value()});
     }
 
     const auto queue = MachiningQueue::Create(version, std::move(workpieces));
     if (!queue.HasValue()) {
-        return Failure<MachineSnapshot>(
+        return Failure<FakeScenarioFrame>(
             ErrorCode::InvalidResponse,
             queue.ErrorValue().message);
     }
@@ -811,12 +835,14 @@ Result<MachineSnapshot> BuildSnapshot(
     for (const auto& workpiece : workpieces) {
         if (const auto* slot = std::get_if<RackSlot>(&workpiece.location)) {
             if (!rackLayout.Value().Contains(*slot)) {
-                return Failure<MachineSnapshot>(
+                return Failure<FakeScenarioFrame>(
                     ErrorCode::InvalidResponse,
                     "A workpiece references a rack slot outside the layout.");
             }
-            if (!occupiedCoordinates.emplace(slot->level, slot->position).second) {
-                return Failure<MachineSnapshot>(
+            if (!occupiedCoordinates
+                     .emplace(slot->level, slot->position)
+                     .second) {
+                return Failure<FakeScenarioFrame>(
                     ErrorCode::InvalidResponse,
                     "Multiple workpieces occupy the same rack slot.");
             }
@@ -825,13 +851,15 @@ Result<MachineSnapshot> BuildSnapshot(
     }
 
     const auto destinationCount = ReadUnsignedValue(
-        responses, ProvisionalDataId::DestinationCount);
+        responses,
+        ProvisionalDataId::DestinationCount);
     if (!destinationCount.HasValue()) {
-        return Result<MachineSnapshot>::Failure(destinationCount.ErrorValue());
+        return Result<FakeScenarioFrame>::Failure(
+            destinationCount.ErrorValue());
     }
     if (destinationCount.Value() >
         static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
-        return Failure<MachineSnapshot>(
+        return Failure<FakeScenarioFrame>(
             ErrorCode::InvalidResponse,
             "Destination count exceeds the supported range.");
     }
@@ -842,10 +870,12 @@ Result<MachineSnapshot> BuildSnapshot(
         const auto destination = ReadDestination(responses, index);
         const auto availability = ReadDestinationAvailability(responses, index);
         if (!destination.HasValue()) {
-            return Result<MachineSnapshot>::Failure(destination.ErrorValue());
+            return Result<FakeScenarioFrame>::Failure(
+                destination.ErrorValue());
         }
         if (!availability.HasValue()) {
-            return Result<MachineSnapshot>::Failure(availability.ErrorValue());
+            return Result<FakeScenarioFrame>::Failure(
+                availability.ErrorValue());
         }
         destinations.push_back(
             DestinationState{destination.Value(), availability.Value()});
@@ -861,7 +891,9 @@ Result<MachineSnapshot> BuildSnapshot(
         connection.Value() == MachineConnectionState::Degraded) {
         lastSuccessfulRead = capturedAt;
         freshness = DataFreshness{
-            DataFreshnessState::Fresh, lastSuccessfulRead, std::nullopt};
+            DataFreshnessState::Fresh,
+            lastSuccessfulRead,
+            std::nullopt};
     } else if (connection.Value() == MachineConnectionState::Disconnected) {
         freshness = DataFreshness{
             DataFreshnessState::Stale,
@@ -869,19 +901,22 @@ Result<MachineSnapshot> BuildSnapshot(
             ErrorCode::Unavailable};
     }
 
-    return Result<MachineSnapshot>::Success(MachineSnapshot{
-        version,
-        capturedAt,
-        MachineHealth{connection.Value(),
-                      mode.Value(),
-                      errorActive.Value(),
-                      warningActive.Value(),
-                      message.Value()},
-        rackLayout.Value(),
-        RackState{std::move(occupiedSlots)},
-        std::move(workpieces),
-        std::move(destinations),
-        freshness});
+    return Result<FakeScenarioFrame>::Success(FakeScenarioFrame{
+        offset,
+        MachineSnapshot{
+            version,
+            capturedAt,
+            MachineHealth{connection.Value(),
+                          mode.Value(),
+                          errorActive.Value(),
+                          warningActive.Value(),
+                          message.Value()},
+            rackLayout.Value(),
+            RackState{std::move(occupiedSlots)},
+            std::move(workpieces),
+            std::move(destinations),
+            freshness},
+        std::move(workpieceDetails)});
 }
 
 }  // namespace
@@ -922,12 +957,15 @@ Result<FakeScenario> CsvScenarioLoader::Parse(std::istream& input) {
             ++index;
         }
 
-        const auto snapshot = BuildSnapshot(
-            responses, offset, version, lastSuccessfulRead);
-        if (!snapshot.HasValue()) {
-            return Result<FakeScenario>::Failure(snapshot.ErrorValue());
+        auto frame = BuildFrame(
+            responses,
+            offset,
+            version,
+            lastSuccessfulRead);
+        if (!frame.HasValue()) {
+            return Result<FakeScenario>::Failure(frame.ErrorValue());
         }
-        frames.push_back(FakeScenarioFrame{offset, snapshot.Value()});
+        frames.push_back(std::move(frame.Value()));
         version = version.Next();
     }
 
