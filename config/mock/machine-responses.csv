@@ -1,5 +1,5 @@
-# Temporary COM-response mock. IDs are provisional and centralized in ProvisionalDataIds.h.
-# Rows at later timestamps override the same data_id/sub_id1/sub_id2 address.
+# COM応答を再現する開発用Mock。暫定IDはProvisionalDataIds.hへ集約する。
+# 同じdata_id/sub_id1/sub_id2では、後の時刻の行がそれ以前の値を上書きする。
 at_ms,data_id,sub_id1,sub_id2,value
 0,1,0,0,connected
 0,2,0,0,manual

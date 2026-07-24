@@ -63,8 +63,8 @@ CheckAndAdjustQueuePriorityUseCase::Execute(
             checked.ErrorValue());
     }
 
-    // SAFETY: The external check may take long enough for the queue to change.
-    // Never apply a result to a newer snapshot.
+    // SAFETY: 外部判定中にキューが更新される可能性があるため、
+    // 判定開始時と異なるSnapshotへ結果を適用しない。
     const auto snapshotAfterCheck = snapshotStore_.Current();
     if (!snapshotAfterCheck ||
         snapshotAfterCheck->version != expectedVersion) {
@@ -104,6 +104,8 @@ CheckAndAdjustQueuePriorityUseCase::Execute(
             "Machine rejected the queue-priority adjustment.");
     }
 
+    // SAFETY: Gatewayのacceptedだけでは成功表示しない。
+    // 変更対象すべてのQueuePriorityがdesiredと一致した場合だけ成功とする。
     const auto readback = stateReader_.Read(
         MonitoringRequest{MonitoringClass::Standard, std::nullopt});
     if (!readback.HasValue()) {

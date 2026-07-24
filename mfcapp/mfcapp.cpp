@@ -1,4 +1,3 @@
-﻿
 // mfcapp.cpp : アプリケーションのクラス動作を定義します。
 //
 
@@ -7,131 +6,151 @@
 #include "afxwinappex.h"
 #include "afxdialogex.h"
 #include "mfcapp.h"
+#include "AppCompositionRoot.h"
 #include "MainFrm.h"
 
+#include <new>
+#include <string>
+#include <string_view>
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
+namespace {
 
-// CmfcappApp
+std::wstring Utf8ToWide(const std::string_view text) {
+    if (text.empty()) {
+        return {};
+    }
 
-BEGIN_MESSAGE_MAP(CmfcappApp, CWinApp)
-	ON_COMMAND(ID_APP_ABOUT, &CmfcappApp::OnAppAbout)
-END_MESSAGE_MAP()
+    const auto required = ::MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        text.data(),
+        static_cast<int>(text.size()),
+        nullptr,
+        0);
+    if (required <= 0) {
+        return L"詳細な診断情報を変換できませんでした。";
+    }
 
-
-// CmfcappApp の構築
-
-CmfcappApp::CmfcappApp() noexcept
-{
-
-	// TODO: 下のアプリケーション ID 文字列を一意の ID 文字列で置換します。推奨される
-	// 文字列の形式は CompanyName.ProductName.SubProduct.VersionInformation です
-	SetAppID(_T("mfcapp.AppID.NoVersion"));
-
-	// TODO: この位置に構築用コードを追加してください。
-	// ここに InitInstance 中の重要な初期化処理をすべて記述してください。
+    std::wstring converted(static_cast<std::size_t>(required), L'\0');
+    const auto written = ::MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        text.data(),
+        static_cast<int>(text.size()),
+        &converted[0],
+        required);
+    if (written != required) {
+        return L"詳細な診断情報を変換できませんでした。";
+    }
+    return converted;
 }
 
-// 唯一の CmfcappApp オブジェクト
+}  // namespace
+
+BEGIN_MESSAGE_MAP(CmfcappApp, CWinApp)
+    ON_COMMAND(ID_APP_ABOUT, &CmfcappApp::OnAppAbout)
+END_MESSAGE_MAP()
+
+CmfcappApp::CmfcappApp() noexcept {
+    // Process識別子であり、WorkpieceIdやCOM dataIdには使用しない。
+    SetAppID(_T("ShelfManager.MfcApp"));
+}
+
+CmfcappApp::~CmfcappApp() = default;
 
 CmfcappApp theApp;
 
+BOOL CmfcappApp::InitInstance() {
+    // Window生成前にPer-Monitor DPIを有効化する。既にManifest等で設定済みの場合は
+    // APIが失敗しても、既存Process設定を維持して初期化を継続する。
+    static_cast<void>(::SetProcessDpiAwarenessContext(
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2));
 
-// CmfcappApp の初期化
+    if (!CWinApp::InitInstance()) {
+        return FALSE;
+    }
 
-BOOL CmfcappApp::InitInstance()
-{
-	CWinApp::InitInstance();
+    EnableTaskbarInteraction(FALSE);
+    // 業務データはRegistryへ保存せず、MFC Shell固有設定の領域だけを分離する。
+    SetRegistryKey(_T("ShelfManager"));
 
+    CMainFrame* frame = nullptr;
+    try {
+        frame = new CMainFrame;
+    } catch (const std::bad_alloc&) {
+        return FALSE;
+    }
+    m_pMainWnd = frame;
 
-	EnableTaskbarInteraction(FALSE);
+    if (!frame->LoadFrame(
+            IDR_MAINFRAME,
+            WS_OVERLAPPEDWINDOW,
+            nullptr,
+            nullptr)) {
+        m_pMainWnd = nullptr;
+        delete frame;
+        return FALSE;
+    }
 
-	// RichEdit コントロールを使用するには AfxInitRichEdit2() が必要です
-	// AfxInitRichEdit2();
+    compositionRoot_ = std::make_unique<AppCompositionRoot>();
+    const auto started = compositionRoot_->Start(frame->ShellView());
+    if (!started.HasValue()) {
+        const auto diagnostic = Utf8ToWide(started.ErrorValue().message);
+        const auto message =
+            std::wstring(L"棚管理GUIを初期化できませんでした。\n\n") +
+            diagnostic;
+        AfxMessageBox(message.c_str(), MB_OK | MB_ICONERROR);
+        compositionRoot_.reset();
+        m_pMainWnd = nullptr;
+        frame->DestroyWindow();
+        return FALSE;
+    }
 
-	// 標準初期化
-	// これらの機能を使わずに最終的な実行可能ファイルの
-	// サイズを縮小したい場合は、以下から不要な初期化
-	// ルーチンを削除してください。
-	// 設定が格納されているレジストリ キーを変更します。
-	// TODO: 会社名または組織名などの適切な文字列に
-	// この文字列を変更してください。
-	SetRegistryKey(_T("アプリケーション ウィザードで生成されたローカル アプリケーション"));
-
-
-	// メイン ウィンドウを作成するとき、このコードは新しいフレーム ウィンドウ オブジェクトを作成し、
-	// それをアプリケーションのメイン ウィンドウにセットします
-	CFrameWnd* pFrame = new CMainFrame;
-	if (!pFrame)
-		return FALSE;
-	m_pMainWnd = pFrame;
-	// フレームをリソースからロードして作成します
-	pFrame->LoadFrame(IDR_MAINFRAME,
-		WS_OVERLAPPEDWINDOW | FWS_ADDTOTITLE, nullptr,
-		nullptr);
-
-
-
-
-
-	// メイン ウィンドウが初期化されたので、表示と更新を行います。
-	pFrame->ShowWindow(SW_SHOW);
-	pFrame->UpdateWindow();
-	return TRUE;
+    frame->ShowWindow(m_nCmdShow);
+    frame->UpdateWindow();
+    return TRUE;
 }
 
-int CmfcappApp::ExitInstance()
-{
-	//TODO: 追加したリソースがある場合にはそれらも処理してください
-	return CWinApp::ExitInstance();
+int CmfcappApp::ExitInstance() {
+    StopComposition();
+    compositionRoot_.reset();
+    return CWinApp::ExitInstance();
 }
 
-// CmfcappApp メッセージ ハンドラー
+void CmfcappApp::StopComposition() noexcept {
+    if (compositionRoot_ != nullptr) {
+        compositionRoot_->Stop();
+    }
+}
 
-
-// アプリケーションのバージョン情報に使われる CAboutDlg ダイアログ
-
-class CAboutDlg : public CDialogEx
-{
+// ApplicationのVersion情報を表示するModal Dialog。
+class CAboutDlg final : public CDialogEx {
 public:
-	CAboutDlg() noexcept;
+    CAboutDlg() noexcept;
 
-// ダイアログ データ
 #ifdef AFX_DESIGN_TIME
-	enum { IDD = IDD_ABOUTBOX };
+    enum { IDD = IDD_ABOUTBOX };
 #endif
 
 protected:
-	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV サポート
-
-// 実装
-protected:
-	DECLARE_MESSAGE_MAP()
+    void DoDataExchange(CDataExchange* dataExchange) override;
+    DECLARE_MESSAGE_MAP()
 };
 
-CAboutDlg::CAboutDlg() noexcept : CDialogEx(IDD_ABOUTBOX)
-{
-}
+CAboutDlg::CAboutDlg() noexcept : CDialogEx(IDD_ABOUTBOX) {}
 
-void CAboutDlg::DoDataExchange(CDataExchange* pDX)
-{
-	CDialogEx::DoDataExchange(pDX);
+void CAboutDlg::DoDataExchange(CDataExchange* dataExchange) {
+    CDialogEx::DoDataExchange(dataExchange);
 }
 
 BEGIN_MESSAGE_MAP(CAboutDlg, CDialogEx)
 END_MESSAGE_MAP()
 
-// ダイアログを実行するためのアプリケーション コマンド
-void CmfcappApp::OnAppAbout()
-{
-	CAboutDlg aboutDlg;
-	aboutDlg.DoModal();
+void CmfcappApp::OnAppAbout() {
+    CAboutDlg aboutDialog;
+    static_cast<void>(aboutDialog.DoModal());
 }
-
-// CmfcappApp メッセージ ハンドラー
-
-
-

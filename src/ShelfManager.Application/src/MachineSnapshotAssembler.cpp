@@ -17,8 +17,8 @@ bool FreshnessEquivalent(
     if (left.state != right.state || left.lastError != right.lastError) {
         return false;
     }
-    // WHY: A successful polling timestamp changes every cycle. Treat it as
-    // metadata while Fresh so unchanged machine values do not repaint at 60fps.
+    // WHY: Fresh時の最終正常取得時刻は監視周期ごとに変化する。
+    // 機械値が同じ場合に60fpsで再描画しないよう、Fresh中は時刻を差分対象外とする。
     return left.state == DataFreshnessState::Fresh ||
            left.lastSuccessfulRead == right.lastSuccessfulRead;
 }
@@ -72,6 +72,8 @@ SnapshotAssemblyOutcome MachineSnapshotAssembler::AcceptFailure(
     const MonitoringClass monitoringClass,
     const ShelfManager::Domain::Error& error,
     const ShelfManager::Domain::TimePoint capturedAt) {
+    // SAFETY: 一度取得できた機械値は通信失敗だけで消去せず、
+    // 鮮度をStaleへ変更して最終正常値であることを明示する。
     auto markFailed = [&error](
                           std::optional<ShelfManager::Domain::DataFreshness>&
                               freshness) {
@@ -107,6 +109,8 @@ MachineSnapshotAssembler::Current() const noexcept {
 
 SnapshotAssemblyOutcome MachineSnapshotAssembler::TryAssemble(
     const ShelfManager::Domain::TimePoint capturedAt) {
+    // SAFETY: 初回同期前の欠落値を0、空文字、正常値で補完しない。
+    // CriticalとStandardを含む必須Fragmentが揃うまで公開を保留する。
     if (!health_.has_value() || !rackLayout_.has_value() ||
         !rackState_.has_value() || !workpieces_.has_value() ||
         !destinations_.has_value() || !criticalFreshness_.has_value() ||

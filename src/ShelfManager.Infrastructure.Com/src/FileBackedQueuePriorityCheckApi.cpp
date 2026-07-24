@@ -25,6 +25,8 @@ HRESULT FileBackedQueuePriorityCheckApi::Check(BSTR input, BSTR* output) {
         lastInput_.assign(input, SysStringLen(input));
     }
 
+    // WHY: JSONファイルはBSTR境界の契約テストに限定して読み込む。
+    // 実機の工具管理計算を模倣せず、固定応答として扱う。
     std::ifstream file(outputJsonPath_, std::ios::binary);
     if (!file.is_open()) {
         return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);

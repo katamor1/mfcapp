@@ -8,6 +8,8 @@
 
 namespace ShelfManager::Domain {
 
+// DomainからInfrastructureまで共通で扱う失敗分類。
+// PresentationはcodeをUserMessageへ変換し、messageを画面へそのまま表示しない。
 enum class ErrorCode {
     InvalidArgument,
     NotFound,
@@ -21,6 +23,7 @@ enum class ErrorCode {
     InternalFailure
 };
 
+// messageは開発者向け診断情報であり、外部API値、パス、例外内容を含む可能性がある。
 struct Error final {
     ErrorCode code;
     std::string message;
@@ -34,6 +37,10 @@ struct Error final {
     }
 };
 
+// 成功値またはErrorのいずれか一方を保持する戻り値型。
+// 呼出し側はHasValueで分岐してからValueまたはErrorValueを参照する。
+// 契約に反して逆側を参照した場合は、回復可能な業務失敗ではなく
+// プログラミング誤りとしてstd::logic_errorを送出する。
 template <class T>
 class Result final {
 public:
@@ -70,6 +77,8 @@ private:
     std::variant<T, Error> storage_;
 };
 
+// 戻り値を持たない操作用のResult特殊化。
+// 成功はerror_が空、失敗は一件のErrorを保持することで表現する。
 template <>
 class Result<void> final {
 public:

@@ -1,97 +1,87 @@
-﻿
 // MainFrm.cpp : CMainFrame クラスの実装
 //
 
 #include "pch.h"
 #include "framework.h"
 #include "mfcapp.h"
-
 #include "MainFrm.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
-// CMainFrame
-
 IMPLEMENT_DYNAMIC(CMainFrame, CFrameWnd)
 
 BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
-	ON_WM_CREATE()
-	ON_WM_SETFOCUS()
+    ON_WM_CREATE()
+    ON_WM_SETFOCUS()
+    ON_WM_CLOSE()
 END_MESSAGE_MAP()
 
-// CMainFrame コンストラクション/デストラクション
+CMainFrame::CMainFrame() noexcept = default;
+CMainFrame::~CMainFrame() = default;
 
-CMainFrame::CMainFrame() noexcept
-{
-	// TODO: メンバー初期化コードをここに追加してください。
+CAppShellView& CMainFrame::ShellView() noexcept {
+    return shellView_;
 }
 
-CMainFrame::~CMainFrame()
-{
+int CMainFrame::OnCreate(LPCREATESTRUCT createStruct) {
+    if (CFrameWnd::OnCreate(createStruct) == -1) {
+        return -1;
+    }
+
+    // FrameのClient領域全体を占める常設Shellを一つだけ作成する。
+    if (!shellView_.Create(
+            this,
+            CRect(0, 0, 0, 0),
+            AFX_IDW_PANE_FIRST)) {
+        TRACE0("アプリケーションShellを作成できませんでした。\n");
+        return -1;
+    }
+    return 0;
 }
 
-int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
-{
-	if (CFrameWnd::OnCreate(lpCreateStruct) == -1)
-		return -1;
+BOOL CMainFrame::PreCreateWindow(CREATESTRUCT& cs) {
+    if (!CFrameWnd::PreCreateWindow(cs)) {
+        return FALSE;
+    }
 
-	// フレームのクライアント領域全体を占めるビューを作成します。
-	if (!m_wndView.Create(nullptr, nullptr, AFX_WS_DEFAULT_VIEW,
-		CRect(0, 0, 0, 0), this, AFX_IDW_PANE_FIRST, nullptr))
-	{
-		TRACE0("ビュー ウィンドウを作成できませんでした。\n");
-		return -1;
-	}
-	return 0;
+    // MVPは単一Top-level Frameとして、通常のサイズ変更・最小化・最大化を許可する。
+    cs.style = WS_OVERLAPPEDWINDOW;
+    cs.dwExStyle &= ~WS_EX_CLIENTEDGE;
+    cs.lpszClass = AfxRegisterWndClass(0);
+    cs.cx = 1280;
+    cs.cy = 800;
+    return TRUE;
 }
-
-BOOL CMainFrame::PreCreateWindow(CREATESTRUCT& cs)
-{
-	if( !CFrameWnd::PreCreateWindow(cs) )
-		return FALSE;
-	// TODO: この位置で CREATESTRUCT cs を修正して Window クラスまたはスタイルを
-	//  修正してください。
-
-	cs.style = WS_OVERLAPPED | WS_CAPTION | FWS_ADDTOTITLE
-		;
-
-	cs.dwExStyle &= ~WS_EX_CLIENTEDGE;
-	cs.lpszClass = AfxRegisterWndClass(0);
-	return TRUE;
-}
-
-// CMainFrame の診断
 
 #ifdef _DEBUG
-void CMainFrame::AssertValid() const
-{
-	CFrameWnd::AssertValid();
+void CMainFrame::AssertValid() const {
+    CFrameWnd::AssertValid();
 }
 
-void CMainFrame::Dump(CDumpContext& dc) const
-{
-	CFrameWnd::Dump(dc);
+void CMainFrame::Dump(CDumpContext& dc) const {
+    CFrameWnd::Dump(dc);
 }
-#endif //_DEBUG
+#endif
 
-
-// CMainFrame メッセージ ハンドラー
-
-void CMainFrame::OnSetFocus(CWnd* /*pOldWnd*/)
-{
-	// ビュー ウィンドウにフォーカスを与えます。
-	m_wndView.SetFocus();
+void CMainFrame::OnSetFocus(CWnd* /*oldWindow*/) {
+    shellView_.SetFocus();
 }
 
-BOOL CMainFrame::OnCmdMsg(UINT nID, int nCode, void* pExtra, AFX_CMDHANDLERINFO* pHandlerInfo)
-{
-	// ビューに最初にコマンドを処理する機会を与えます。
-	if (m_wndView.OnCmdMsg(nID, nCode, pExtra, pHandlerInfo))
-		return TRUE;
-
-	// それ以外の場合は、既定の処理を行います。
-	return CFrameWnd::OnCmdMsg(nID, nCode, pExtra, pHandlerInfo);
+void CMainFrame::OnClose() {
+    // SAFETY: Window破棄前にSnapshot通知を止め、Monitoring Workerをjoinする。
+    theApp.StopComposition();
+    CFrameWnd::OnClose();
 }
 
+BOOL CMainFrame::OnCmdMsg(
+    const UINT nID,
+    const int nCode,
+    void* pExtra,
+    AFX_CMDHANDLERINFO* pHandlerInfo) {
+    if (shellView_.OnCmdMsg(nID, nCode, pExtra, pHandlerInfo)) {
+        return TRUE;
+    }
+    return CFrameWnd::OnCmdMsg(nID, nCode, pExtra, pHandlerInfo);
+}

@@ -33,8 +33,8 @@ ShelfManager::Domain::Result<void> MonitoringCoordinator::Tick() {
                                        request.monitoringClass,
                                        read.ErrorValue(),
                                        clock_.Now());
-        // SAFETY: A failed read must release the in-flight group or polling
-        // would stop permanently after one communication error.
+        // SAFETY: 読取失敗時もin-flight状態を解除する。
+        // 解除しないと、一度の通信異常で該当監視区分が永久に停止する。
         plan_.MarkComplete(request.monitoringClass);
 
         const auto published = Publish(outcome);

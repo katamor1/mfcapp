@@ -4,6 +4,8 @@
 
 namespace ShelfManager::Presentation {
 
+// 機械状態帯で使用するPresentation専用の表示状態。
+// Domainの列挙値と一対一ではなく、Presenterがオペレーター向けに集約する。
 enum class StatusLampState {
     Unknown,
     Normal,
@@ -12,6 +14,8 @@ enum class StatusLampState {
     Disconnected
 };
 
+// 機械状態帯を一回描画するための完成済みViewModel。
+// ViewはDomain状態を再解釈せず、この値に従ってテキスト、Lamp、操作可否を表示する。
 struct MachineStatusViewModel final {
     std::wstring connectionText;
     std::wstring machineText;
@@ -19,7 +23,12 @@ struct MachineStatusViewModel final {
     std::wstring messageText;
     StatusLampState connectionLamp{StatusLampState::Unknown};
     StatusLampState machineLamp{StatusLampState::Unknown};
+
+    // SAFETY: PresenterがConnected／Fresh／機械Errorなしを確認した場合だけtrueとなる。
+    // View側の都合でtrueへ上書きしてはならない。
     bool controlsEnabled{false};
+
+    // 初回Snapshot未取得中であることを示す。trueの間は操作を受け付けない。
     bool synchronizing{true};
 
     friend bool operator==(

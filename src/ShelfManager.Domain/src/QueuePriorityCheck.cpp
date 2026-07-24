@@ -74,6 +74,8 @@ Result<QueuePriorityAdjustmentOutcome> QueuePriorityAdjustmentPolicy::Plan(
         }
     }
 
+    // SAFETY: 外部応答は件数・ID・工具結果をすべて検証してから利用する。
+    // 欠落や追加を部分成功として扱わず、順位変更計画を生成しない。
     if (response.workpieces.size() != request.workpieces.size()) {
         return Failure<QueuePriorityAdjustmentOutcome>(
             ErrorCode::InvalidResponse,
@@ -94,6 +96,8 @@ Result<QueuePriorityAdjustmentOutcome> QueuePriorityAdjustmentPolicy::Plan(
         }
     }
 
+    // WHY: requestの元順で二群へ追加することで、Executable群と
+    // NotExecutable群の内部相対順を判定のたびに変動させない。
     std::vector<WorkpieceId> executable;
     std::vector<WorkpieceId> notExecutable;
     executable.reserve(orderedQueue.size());
