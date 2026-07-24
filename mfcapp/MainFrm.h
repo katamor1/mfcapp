@@ -2,20 +2,19 @@
 //
 #pragma once
 
-#include "ChildView.h"
+#include "AppShellView.h"
 
 // MFC ShellのTop-level Frame。
-// Client領域を所有するCChildViewの生成、Focus、Command routingだけを担当し、
-// Domain判断や機械通信を直接実行しない。
-class CMainFrame : public CFrameWnd {
+// CAppShellViewの生成、Focus、Command routing、終了要求の調停だけを担当し、
+// Domain判断、機械通信、Feature固有描画を直接実行しない。
+class CMainFrame final : public CFrameWnd {
 public:
     CMainFrame() noexcept;
     ~CMainFrame() override;
 
-    // Shell用Window styleとWindow classを設定する。
-    BOOL PreCreateWindow(CREATESTRUCT& cs) override;
+    [[nodiscard]] CAppShellView& ShellView() noexcept;
 
-    // CommandをCChildViewへ先に配送し、未処理の場合だけCFrameWndへ委譲する。
+    BOOL PreCreateWindow(CREATESTRUCT& cs) override;
     BOOL OnCmdMsg(
         UINT nID,
         int nCode,
@@ -27,14 +26,14 @@ public:
     void Dump(CDumpContext& dc) const override;
 #endif
 
-    // CMainFrameがWindow lifetimeを所有するClient View。
-    // 既存MFC Shellとの互換性のため公開範囲を維持する。
-    CChildView m_wndView;
-
 protected:
     DECLARE_DYNAMIC(CMainFrame)
 
-    afx_msg int OnCreate(LPCREATESTRUCT lpCreateStruct);
-    afx_msg void OnSetFocus(CWnd* pOldWnd);
+    afx_msg int OnCreate(LPCREATESTRUCT createStruct);
+    afx_msg void OnSetFocus(CWnd* oldWindow);
+    afx_msg void OnClose();
     DECLARE_MESSAGE_MAP()
+
+private:
+    CAppShellView shellView_;
 };
