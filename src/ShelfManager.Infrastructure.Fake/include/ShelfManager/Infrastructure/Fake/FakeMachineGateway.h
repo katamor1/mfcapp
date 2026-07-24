@@ -17,7 +17,8 @@ namespace ShelfManager::Infrastructure::Fake {
 // COM apartment、Ethernet、BSTR、ベンダーtimeout、物理搬送は再現しない。
 // Scenarioの次Frameへ進むと、そのFrameのSnapshotがFake内変更を置き換える。
 //
-// THREAD: 公開操作は内部mutexで直列化する。設定遅延中はmutexを保持しない。
+// THREAD: 状態読書きと観測用記録は内部mutexで直列化する。
+// 設定遅延中はmutexを保持しないため、複数呼出しの待機時間自体は重なり得る。
 // SAFETY: DisconnectedまたはStaleなFrameでは変更要求を拒否する。
 // 所有権: clockは所有せず、Gatewayより長く生存する必要がある。scenarioは値として所有する。
 class FakeMachineGateway final
@@ -55,6 +56,7 @@ public:
 
     // 以下はテスト観測用であり、製品のApplication Portには公開しない。
     // 戻り値はmutex保護下のコピーで、後続操作によって変更されない。
+    // CurrentSnapshotはScenario時刻を進めないため、必要なら先にRead等を実行する。
     [[nodiscard]] ShelfManager::Domain::MachineSnapshot CurrentSnapshot() const;
     [[nodiscard]] std::vector<ShelfManager::Application::TransportRequest>
     TransportRequests() const;
