@@ -67,7 +67,9 @@ protected:
     afx_msg void OnMachiningQueue();
     afx_msg void OnManualTransport();
     afx_msg LRESULT OnSnapshotChanged(WPARAM version, LPARAM changeFlags);
-    afx_msg LRESULT OnOperationCompleted(WPARAM unused, LPARAM unused);
+    afx_msg LRESULT OnOperationCompleted(
+        WPARAM unusedWParam,
+        LPARAM unusedLParam);
     afx_msg LRESULT OnDpiChanged(WPARAM dpi, LPARAM suggestedRect);
     DECLARE_MESSAGE_MAP()
 
