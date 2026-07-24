@@ -5,7 +5,8 @@
 #include "ShelfManager/Application/ISnapshotNotificationSink.h"
 
 // Snapshot公開通知専用のProcess-local Window Message。
-// WPARAMにはSnapshotVersion、LPARAMにはSnapshotChangeFlagのbit値を格納する。
+// WPARAMにはSnapshotVersionの診断Hint、LPARAMにはSnapshotChangeFlagのbit値を格納する。
+// Win32ではVersionがWPARAM幅へ切り詰められ得るため、受信側は一致判定に使用しない。
 inline constexpr UINT WM_APP_SNAPSHOT_CHANGED = WM_APP + 1U;
 
 // Monitoring WorkerからのSnapshot公開通知をUI threadのWindow Messageへ変換する。
