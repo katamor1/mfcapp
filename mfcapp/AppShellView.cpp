@@ -2,6 +2,8 @@
 #include "framework.h"
 #include "AppShellView.h"
 
+#include <algorithm>
+
 #include "ShelfManager/Presentation/MachineStatusPresenter.h"
 
 namespace {
@@ -129,7 +131,7 @@ int CAppShellView::OnCreate(LPCREATESTRUCT createStruct) {
     }
 
     auto* defaultFont = CFont::FromHandle(
-        static_cast<HFONT>(::GetStockObject(DEFAULT_GUI_FONT)));
+        reinterpret_cast<HFONT>(::GetStockObject(DEFAULT_GUI_FONT)));
     visualRackButton_.SetFont(defaultFont);
     machiningQueueButton_.SetFont(defaultFont);
     manualTransportButton_.SetFont(defaultFont);
@@ -186,7 +188,7 @@ void CAppShellView::OnTimer(const UINT_PTR timerId) {
     if (timerId == kSmokeExitTimerId) {
         KillTimer(kSmokeExitTimerId);
         if (auto* frame = GetParentFrame(); frame != nullptr) {
-            frame->PostMessageW(WM_CLOSE);
+            frame->PostMessage(WM_CLOSE);
         }
         return;
     }
@@ -287,15 +289,13 @@ void CAppShellView::LayoutChildren(const int width, const int height) {
     }
 
     if (::IsWindow(operationOverlay_.GetSafeHwnd())) {
-        const auto overlayWidth = (std::min)(Scale(300), (std::max)(0, width - navWidth));
-        const auto overlayHeight = Scale(84);
-        const auto hostLeft = navWidth;
-        const auto hostTop = statusHeight;
         const auto hostWidth = (std::max)(0, width - navWidth);
         const auto hostHeight = (std::max)(0, height - statusHeight);
+        const auto overlayWidth = (std::min)(Scale(300), hostWidth);
+        const auto overlayHeight = (std::min)(Scale(84), hostHeight);
         operationOverlay_.MoveWindow(
-            hostLeft + ((hostWidth - overlayWidth) / 2),
-            hostTop + ((hostHeight - overlayHeight) / 2),
+            navWidth + ((hostWidth - overlayWidth) / 2),
+            statusHeight + ((hostHeight - overlayHeight) / 2),
             overlayWidth,
             overlayHeight);
     }
