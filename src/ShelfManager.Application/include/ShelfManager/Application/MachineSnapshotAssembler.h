@@ -57,6 +57,7 @@ private:
     std::optional<ShelfManager::Domain::RackState> rackState_;
     std::optional<std::vector<ShelfManager::Domain::WorkpieceSummary>> workpieces_;
     std::optional<std::vector<ShelfManager::Domain::DestinationState>> destinations_;
+    std::optional<ShelfManager::Domain::WorkpieceDetail> workpieceDetail_;
     std::optional<ShelfManager::Domain::DataFreshness> criticalFreshness_;
     std::optional<ShelfManager::Domain::DataFreshness> standardFreshness_;
     std::shared_ptr<const ShelfManager::Domain::MachineSnapshot> current_;
