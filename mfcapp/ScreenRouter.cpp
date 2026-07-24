@@ -4,6 +4,7 @@
 
 namespace {
 
+constexpr UINT kVisualRackViewControlId = 43001U;
 constexpr COLORREF kBackgroundColor = RGB(245, 247, 249);
 constexpr COLORREF kTitleColor = RGB(31, 41, 55);
 constexpr COLORREF kBodyColor = RGB(75, 85, 99);
@@ -11,8 +12,10 @@ constexpr COLORREF kBodyColor = RGB(75, 85, 99);
 }  // namespace
 
 BEGIN_MESSAGE_MAP(ScreenRouter, CWnd)
+    ON_WM_CREATE()
     ON_WM_PAINT()
     ON_WM_ERASEBKGND()
+    ON_WM_SIZE()
 END_MESSAGE_MAP()
 
 ScreenRouter::ScreenRouter(
@@ -43,6 +46,7 @@ BOOL ScreenRouter::Create(
 bool ScreenRouter::Activate(const ShelfManager::Presentation::ScreenId screen) {
     const auto changed = model_.Activate(screen);
     if (changed) {
+        UpdateFeatureVisibility();
         Invalidate(FALSE);
     }
     return changed;
@@ -52,9 +56,32 @@ ShelfManager::Presentation::ScreenId ScreenRouter::ActiveScreen() const {
     return model_.ActiveScreen();
 }
 
+CVisualRackView& ScreenRouter::VisualRackView() noexcept {
+    return visualRackView_;
+}
+
 void ScreenRouter::SetDpi(const UINT dpi) {
     dpi_ = dpi == 0U ? 96U : dpi;
+    visualRackView_.SetDpi(dpi_);
+    LayoutFeatureViews();
     Invalidate(FALSE);
+}
+
+int ScreenRouter::OnCreate(LPCREATESTRUCT createStruct) {
+    if (CWnd::OnCreate(createStruct) == -1) {
+        return -1;
+    }
+
+    const CRect empty(0, 0, 0, 0);
+    if (!visualRackView_.Create(
+            this,
+            empty,
+            kVisualRackViewControlId)) {
+        return -1;
+    }
+    visualRackView_.SetDpi(dpi_);
+    UpdateFeatureVisibility();
+    return 0;
 }
 
 void ScreenRouter::OnPaint() {
@@ -64,8 +91,13 @@ void ScreenRouter::OnPaint() {
     dc.FillSolidRect(client, kBackgroundColor);
     dc.SetBkMode(TRANSPARENT);
 
-    // WHY: Feature Viewが未接続のMVP段階でも、空白画面ではなく現在の
-    // ScreenIdと後続実装の責務を明示し、実装済みと誤認させない。
+    if (model_.ActiveScreen() ==
+        ShelfManager::Presentation::ScreenId::VisualRack) {
+        return;
+    }
+
+    // WHY: Feature Viewが未接続の画面でも、空白ではなく現在のScreenIdと
+    // 後続実装の責務を明示し、実装済みと誤認させない。
     CRect titleRect = client;
     titleRect.DeflateRect(Scale(32), Scale(28));
     titleRect.bottom = titleRect.top + Scale(34);
@@ -90,8 +122,16 @@ void ScreenRouter::OnPaint() {
 }
 
 BOOL ScreenRouter::OnEraseBkgnd(CDC* /*dc*/) {
-    // WHY: OnPaintがClient全体を塗るため、既定の背景消去を省いてちらつきを抑える。
+    // WHY: OnPaintまたは表示中Feature ViewがClient全体を塗るため、背景消去を省く。
     return TRUE;
+}
+
+void ScreenRouter::OnSize(
+    const UINT type,
+    const int width,
+    const int height) {
+    CWnd::OnSize(type, width, height);
+    LayoutFeatureViews();
 }
 
 int ScreenRouter::Scale(const int dip) const noexcept {
@@ -119,8 +159,7 @@ const wchar_t* ScreenRouter::DescriptionFor(
     using ShelfManager::Presentation::ScreenId;
     switch (screen) {
         case ScreenId::VisualRack:
-            return L"棚レイアウトとWorkpiece配置を表示する領域です。\n"
-                   L"動的な棚Controlと選択詳細はVisualRack Featureで接続します。";
+            return L"棚レイアウトとWorkpiece配置を表示する領域です。";
         case ScreenId::MachiningQueue:
             return L"QueuePriority順の一覧と順位変更操作を表示する領域です。\n"
                    L"書込みとStandard読戻しを伴う操作はMachiningQueue Featureで接続します。";
@@ -129,4 +168,25 @@ const wchar_t* ScreenRouter::DescriptionFor(
                    L"認証、運転モード、Freshness、搬送先を確認するFeatureで接続します。";
     }
     return L"このScreenIdにはFeature Viewが登録されていません。";
+}
+
+void ScreenRouter::UpdateFeatureVisibility() {
+    if (!::IsWindow(visualRackView_.GetSafeHwnd())) {
+        return;
+    }
+    visualRackView_.ShowWindow(
+        model_.ActiveScreen() ==
+                ShelfManager::Presentation::ScreenId::VisualRack
+            ? SW_SHOW
+            : SW_HIDE);
+}
+
+void ScreenRouter::LayoutFeatureViews() {
+    if (!::IsWindow(GetSafeHwnd()) ||
+        !::IsWindow(visualRackView_.GetSafeHwnd())) {
+        return;
+    }
+    CRect client;
+    GetClientRect(&client);
+    visualRackView_.MoveWindow(client);
 }
