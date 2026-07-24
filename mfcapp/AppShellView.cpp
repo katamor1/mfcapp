@@ -8,6 +8,8 @@
 
 namespace {
 
+// MFC resource IDとは分離した、Shell内でのみ有効な動的Control ID。
+// Feature Control追加時も一意性をこの表で管理する。
 enum : UINT {
     kMachineStatusControlId = 41001U,
     kVisualRackButtonId = 41002U,
@@ -17,6 +19,7 @@ enum : UINT {
     kOperationOverlayControlId = 41006U
 };
 
+// Smoke Test用Timerは業務Timerと共有せず、Shell内で一回限りに使用する。
 constexpr UINT_PTR kSmokeExitTimerId = 1U;
 constexpr COLORREF kShellBackgroundColor = RGB(226, 232, 240);
 
@@ -81,6 +84,8 @@ bool CAppShellView::ScheduleSmokeExit(const UINT milliseconds) {
 }
 
 void CAppShellView::ShowOperationOverlay(const bool visible) {
+    // SAFETY: Overlay表示中もMessage Loopを止めず、完了通知とSnapshot通知を
+    // 処理できる状態を保ったまま、ユーザー入力だけを抑止する。
     operationOverlay_.ShowWindow(visible ? SW_SHOW : SW_HIDE);
     visualRackButton_.EnableWindow(!visible);
     machiningQueueButton_.EnableWindow(!visible);
@@ -101,6 +106,8 @@ int CAppShellView::OnCreate(LPCREATESTRUCT createStruct) {
         dpi_ = 96U;
     }
 
+    // 常設Controlをすべて生成できた場合だけShell作成を成功させる。
+    // 部分生成状態では操作可能なWindowとして公開しない。
     const CRect empty(0, 0, 0, 0);
     if (!machineStatusView_.Create(this, empty, kMachineStatusControlId)) {
         return -1;
@@ -161,6 +168,7 @@ int CAppShellView::OnCreate(LPCREATESTRUCT createStruct) {
 
 void CAppShellView::OnDestroy() {
     KillTimer(kSmokeExitTimerId);
+    // 所有権: Presenterは所有しないため、Window破棄後の通知経路だけを切る。
     machineStatusPresenter_ = nullptr;
     CWnd::OnDestroy();
 }
@@ -173,6 +181,7 @@ void CAppShellView::OnPaint() {
 }
 
 BOOL CAppShellView::OnEraseBkgnd(CDC* /*dc*/) {
+    // WHY: OnPaintがClient全体を塗るため、既定の背景消去を省いてちらつきを抑える。
     return TRUE;
 }
 
@@ -188,6 +197,7 @@ void CAppShellView::OnTimer(const UINT_PTR timerId) {
     if (timerId == kSmokeExitTimerId) {
         KillTimer(kSmokeExitTimerId);
         if (auto* frame = GetParentFrame(); frame != nullptr) {
+            // Smoke Testでも通常のWM_CLOSE経路を通し、Composition Rootの停止順序を検証する。
             frame->PostMessage(WM_CLOSE);
         }
         return;
@@ -210,6 +220,8 @@ void CAppShellView::OnManualTransport() {
 LRESULT CAppShellView::OnSnapshotChanged(
     WPARAM /*version*/,
     LPARAM /*changeFlags*/) {
+    // WHY: MessageのVersionとFlagはHintに限定する。通知が連続・滞留しても
+    // PresenterがStoreの最新Snapshotを再取得し、古い版を逐次再生しない。
     if (machineStatusPresenter_ != nullptr) {
         machineStatusPresenter_->OnSnapshotChanged();
     }
@@ -227,6 +239,8 @@ LRESULT CAppShellView::OnDpiChanged(
         dpi_ = 96U;
     }
 
+    // WHY: ShellはTop-level WindowではなくCMainFrameのChildであるため、
+    // suggestedRectを直接適用せず、現在のClient領域内をDIP基準で再配置する。
     machineStatusView_.SetDpi(dpi_);
     screenRouter_.SetDpi(dpi_);
     CRect client;
@@ -244,6 +258,8 @@ void CAppShellView::LayoutChildren(const int width, const int height) {
         return;
     }
 
+    // SOURCE: 承認済みMVP設計。上部状態帯48 DIP、左NavRail 72 DIPを
+    // 固定し、残りをActive Feature Hostとして使用する。
     const auto statusHeight = Scale(48);
     const auto navWidth = Scale(72);
     const auto navMargin = Scale(8);
@@ -303,6 +319,8 @@ void CAppShellView::LayoutChildren(const int width, const int height) {
 
 void CAppShellView::Activate(
     const ShelfManager::Presentation::ScreenId screen) {
+    // ScreenRoutingModelが未対応値と同一画面を拒否するため、Nav表示は常に
+    // 実際に保持されたActiveScreenから再計算する。
     static_cast<void>(screenRouter_.Activate(screen));
     UpdateNavigationState();
 }
