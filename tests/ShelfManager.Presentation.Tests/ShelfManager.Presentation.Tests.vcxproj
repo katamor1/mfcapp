@@ -2,7 +2,7 @@
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <ShelfManagerConfigurationType>Application</ShelfManagerConfigurationType>
-    <ShelfManagerIncludeDirectories>$(MSBuildThisFileDirectory)..\..\src\ShelfManager.Presentation.Core\include;$(MSBuildThisFileDirectory)..\..\src\ShelfManager.Application\include;$(MSBuildThisFileDirectory)..\..\src\ShelfManager.Domain\include;$(MSBuildThisFileDirectory)..\..\src\ShelfManager.Infrastructure.Fake\include</ShelfManagerIncludeDirectories>
+    <ShelfManagerIncludeDirectories>$(MSBuildThisFileDirectory)..\..\src\ShelfManager.Presentation.Core\include;$(MSBuildThisFileDirectory)..\..\src\ShelfManager.Application\include;$(MSBuildThisFileDirectory)..\..\src\ShelfManager.Domain\include</ShelfManagerIncludeDirectories>
     <ShelfManagerIsTest>true</ShelfManagerIsTest>
   </PropertyGroup>
   <PropertyGroup Label="Globals">
@@ -26,9 +26,6 @@
     </ProjectReference>
     <ProjectReference Include="..\..\src\ShelfManager.Domain\ShelfManager.Domain.vcxproj">
       <Project>{83E8ED31-DA96-5A28-B949-D4445C740E5A}</Project>
-    </ProjectReference>
-    <ProjectReference Include="..\..\src\ShelfManager.Infrastructure.Fake\ShelfManager.Infrastructure.Fake.vcxproj">
-      <Project>{A22AA9F9-170C-5AFA-9510-B0FEB4481200}</Project>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
