@@ -55,6 +55,11 @@ ShelfManager::Domain::Result<void> MonitoringCoordinator::Tick() {
 
 void MonitoringCoordinator::RequestOnDemand(
     std::optional<ShelfManager::Domain::WorkpieceId> selectedWorkpiece) {
+    RequestWorkpieceDetail(std::move(selectedWorkpiece));
+}
+
+void MonitoringCoordinator::RequestWorkpieceDetail(
+    std::optional<ShelfManager::Domain::WorkpieceId> selectedWorkpiece) {
     plan_.RequestOnDemand(std::move(selectedWorkpiece));
 }
 
