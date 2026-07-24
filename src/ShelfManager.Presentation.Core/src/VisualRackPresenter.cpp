@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <variant>
 
 namespace ShelfManager::Presentation {
