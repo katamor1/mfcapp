@@ -31,7 +31,10 @@ FakeMachineGateway::FakeMachineGateway(
       scenarioStart_(clock_.Now()),
       latency_(latency),
       activeFrameIndex_(0U),
-      state_(scenario_.FrameAt(ShelfManager::Domain::Duration::zero()).snapshot) {}
+      state_(scenario_.FrameAt(ShelfManager::Domain::Duration::zero()).snapshot),
+      workpieceDetails_(
+          scenario_.FrameAt(ShelfManager::Domain::Duration::zero())
+              .workpieceDetails) {}
 
 ShelfManager::Domain::Result<ShelfManager::Application::MachineSnapshotFragment>
 FakeMachineGateway::Read(
@@ -55,12 +58,31 @@ FakeMachineGateway::Read(
             fragment.health = state_.health;
             break;
         case ShelfManager::Application::MonitoringClass::Standard:
-        case ShelfManager::Application::MonitoringClass::OnDemand:
             fragment.rackLayout = state_.rackLayout;
             fragment.rackState = state_.rackState;
             fragment.workpieces = state_.workpieces;
             fragment.destinations = state_.destinations;
             break;
+        case ShelfManager::Application::MonitoringClass::OnDemand: {
+            if (!request.selectedWorkpiece.has_value()) {
+                return Failure<ShelfManager::Application::MachineSnapshotFragment>(
+                    ErrorCode::InvalidArgument,
+                    "On-demand workpiece detail requires a selected workpiece.");
+            }
+            const auto detail = std::find_if(
+                workpieceDetails_.begin(),
+                workpieceDetails_.end(),
+                [&request](const auto& candidate) {
+                    return candidate.id == *request.selectedWorkpiece;
+                });
+            if (detail == workpieceDetails_.end()) {
+                return Failure<ShelfManager::Application::MachineSnapshotFragment>(
+                    ErrorCode::NotFound,
+                    "Selected workpiece detail was not found in the fake scenario.");
+            }
+            fragment.workpieceDetail = *detail;
+            break;
+        }
     }
 
     return ShelfManager::Domain::Result<
@@ -257,7 +279,8 @@ void FakeMachineGateway::SynchronizeFrameLocked() {
     }
 
     activeFrameIndex_ = frameIndex;
-    auto nextState = scenario_.FrameAt(elapsed).snapshot;
+    const auto& frame = scenario_.FrameAt(elapsed);
+    auto nextState = frame.snapshot;
 
     // WHY: Fixture側のVersionが操作で進んだ現在値以下でも、公開Versionを逆行させない。
     if (nextState.version <= state_.version) {
@@ -265,8 +288,9 @@ void FakeMachineGateway::SynchronizeFrameLocked() {
     }
 
     // SOURCE: FakeScenarioは時系列Frameを正本とする。Frame境界を越えると、
-    // それ以前のFake内変更も次FrameのSnapshotで置き換える。
+    // それ以前のFake内変更も次FrameのSnapshotと詳細で置き換える。
     state_ = std::move(nextState);
+    workpieceDetails_ = frame.workpieceDetails;
 }
 
 bool FakeMachineGateway::IsWritableLocked() const noexcept {
