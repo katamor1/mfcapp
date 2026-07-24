@@ -8,7 +8,7 @@
 #error "PCH に対してこのファイルをインクルードする前に 'pch.h' をインクルードしてください"
 #endif
 
-#include "resource.h"
+#include "Resource.h"
 
 class AppCompositionRoot;
 
