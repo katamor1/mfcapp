@@ -5,6 +5,7 @@
 #include <algorithm>
 
 #include "ShelfManager/Presentation/MachineStatusPresenter.h"
+#include "ShelfManager/Presentation/VisualRackPresenter.h"
 
 namespace {
 
@@ -67,6 +68,10 @@ CMachineStatusView& CAppShellView::MachineStatusView() noexcept {
     return machineStatusView_;
 }
 
+CVisualRackView& CAppShellView::VisualRackView() noexcept {
+    return screenRouter_.VisualRackView();
+}
+
 ShelfManager::Presentation::UiStateStore& CAppShellView::UiState() noexcept {
     return uiState_;
 }
@@ -74,6 +79,12 @@ ShelfManager::Presentation::UiStateStore& CAppShellView::UiState() noexcept {
 void CAppShellView::BindMachineStatusPresenter(
     ShelfManager::Presentation::MachineStatusPresenter* presenter) noexcept {
     machineStatusPresenter_ = presenter;
+}
+
+void CAppShellView::BindVisualRackPresenter(
+    ShelfManager::Presentation::VisualRackPresenter* presenter) noexcept {
+    visualRackPresenter_ = presenter;
+    screenRouter_.VisualRackView().BindPresenter(presenter);
 }
 
 bool CAppShellView::ScheduleSmokeExit(const UINT milliseconds) {
@@ -169,6 +180,8 @@ int CAppShellView::OnCreate(LPCREATESTRUCT createStruct) {
 void CAppShellView::OnDestroy() {
     KillTimer(kSmokeExitTimerId);
     // 所有権: Presenterは所有しないため、Window破棄後の通知経路だけを切る。
+    screenRouter_.VisualRackView().BindPresenter(nullptr);
+    visualRackPresenter_ = nullptr;
     machineStatusPresenter_ = nullptr;
     CWnd::OnDestroy();
 }
@@ -224,6 +237,9 @@ LRESULT CAppShellView::OnSnapshotChanged(
     // PresenterがStoreの最新Snapshotを再取得し、古い版を逐次再生しない。
     if (machineStatusPresenter_ != nullptr) {
         machineStatusPresenter_->OnSnapshotChanged();
+    }
+    if (visualRackPresenter_ != nullptr) {
+        visualRackPresenter_->OnSnapshotChanged();
     }
     return 0;
 }
