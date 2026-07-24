@@ -1,4 +1,6 @@
-#include "resource.h"
+#pragma code_page(65001)
+
+#include "Resource.h"
 
 #define APSTUDIO_READONLY_SYMBOLS
 #ifndef APSTUDIO_INVOKED
