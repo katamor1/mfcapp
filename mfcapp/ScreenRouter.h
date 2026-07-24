@@ -1,10 +1,11 @@
 #pragma once
 
+#include "VisualRackView.h"
+
 #include "ShelfManager/Presentation/ScreenRoutingModel.h"
 
-// Active Feature領域を描画し、ScreenIdと表示内容の対応を一元化するMFC Host。
-// Feature固有Viewが追加されるまでは各画面の責務と未接続状態を明示し、
-// Domain判断や機械通信を直接実行しない。
+// Active Feature Viewを所有し、ScreenIdと表示中Child Windowの対応を一元化するMFC Host。
+// Domain判断や機械通信を直接実行せず、未接続FeatureだけPlaceholderとして描画する。
 //
 // THREAD: Public APIとMessage HandlerはUI threadから呼び出す。
 // 所有権: UiStateStoreは所有せず、ScreenRouterより長く生存する必要がある。
@@ -14,7 +15,7 @@ public:
         ShelfManager::Presentation::UiStateStore& uiState) noexcept;
     ~ScreenRouter() override;
 
-    // parentのChild WindowとしてFeature Hostを生成する。
+    // parentのChild WindowとしてFeature HostとVisualRack Viewを生成する。
     // parentの所有権は保持しない。
     BOOL Create(CWnd* parent, const CRect& bounds, UINT controlId);
 
@@ -25,13 +26,19 @@ public:
     // UiStateStoreに保存されている現在の画面を返す。
     [[nodiscard]] ShelfManager::Presentation::ScreenId ActiveScreen() const;
 
-    // DIPからpixelへの変換に使うDPIを更新し、再描画を予約する。
+    // Composition RootがPresenterを接続する、ScreenRouter所有のVisualRack View。
+    // 戻り値の参照はScreenRouterの寿命内だけ有効である。
+    [[nodiscard]] CVisualRackView& VisualRackView() noexcept;
+
+    // DIPからpixelへの変換に使うDPIを更新し、Child Viewへ伝播する。
     // 0は既定の96 DPIとして扱う。
     void SetDpi(UINT dpi);
 
 protected:
+    afx_msg int OnCreate(LPCREATESTRUCT createStruct);
     afx_msg void OnPaint();
     afx_msg BOOL OnEraseBkgnd(CDC* dc);
+    afx_msg void OnSize(UINT type, int width, int height);
     DECLARE_MESSAGE_MAP()
 
 private:
@@ -41,6 +48,10 @@ private:
     [[nodiscard]] static const wchar_t* DescriptionFor(
         ShelfManager::Presentation::ScreenId screen) noexcept;
 
+    void UpdateFeatureVisibility();
+    void LayoutFeatureViews();
+
     ShelfManager::Presentation::ScreenRoutingModel model_;
+    CVisualRackView visualRackView_;
     UINT dpi_{96U};
 };
