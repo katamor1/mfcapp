@@ -9,6 +9,8 @@ constexpr COLORREF kTextColor = RGB(248, 250, 252);
 constexpr COLORREF kSubtleTextColor = RGB(203, 213, 225);
 constexpr COLORREF kBorderColor = RGB(71, 85, 105);
 
+// ViewModelで確定済みの表示状態を色へ変換するだけとし、通信可否や
+// 操作許可の業務判断をView側で再計算しない。
 COLORREF LampColor(const ShelfManager::Presentation::StatusLampState state) {
     using ShelfManager::Presentation::StatusLampState;
     switch (state) {
@@ -35,6 +37,7 @@ void DrawLamp(
     auto* previousBrush = dc.SelectObject(&brush);
     auto* previousPen = dc.SelectObject(&pen);
     dc.Ellipse(bounds);
+    // 所有権: Stack上のGDI Objectを破棄する前に、元のObjectへ必ず戻す。
     dc.SelectObject(previousPen);
     dc.SelectObject(previousBrush);
 }
@@ -71,6 +74,7 @@ BOOL CMachineStatusView::Create(
 
 void CMachineStatusView::Render(
     const ShelfManager::Presentation::MachineStatusViewModel& viewModel) {
+    // WHY: 描画待ちの更新を逐次再生せず、最後に受け取った完全なViewModelだけを保持する。
     viewModel_ = viewModel;
     hasViewModel_ = true;
     Invalidate(FALSE);
@@ -90,6 +94,7 @@ void CMachineStatusView::OnPaint() {
     dc.SetTextColor(kTextColor);
 
     if (!hasViewModel_) {
+        // Presenter接続前も空白にせず、操作判断に使えない初期状態であることを示す。
         CRect textRect = client;
         textRect.DeflateRect(Scale(16), 0);
         dc.DrawText(
@@ -154,6 +159,7 @@ void CMachineStatusView::OnPaint() {
 }
 
 BOOL CMachineStatusView::OnEraseBkgnd(CDC* /*dc*/) {
+    // WHY: OnPaintがClient全体を塗るため、既定の背景消去を省いてちらつきを抑える。
     return TRUE;
 }
 
@@ -161,6 +167,7 @@ int CMachineStatusView::OnMouseActivate(
     CWnd* /*desktopWindow*/,
     UINT /*hitTest*/,
     UINT /*message*/) {
+    // SOURCE: 概略仕様書「機械状態画面」。常設状態帯はクリックでFocusを取得しない。
     return MA_NOACTIVATE;
 }
 
