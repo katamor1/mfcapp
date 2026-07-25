@@ -266,8 +266,7 @@ Result<std::vector<CsvRow>> ReadRows(std::istream& input) {
 
         if (dataId.Value() <
                 ToDataId(ProvisionalDataId::MachineConnectionState) ||
-            dataId.Value() >
-                ToDataId(ProvisionalDataId::ManualTransportRequest)) {
+            dataId.Value() > ToDataId(ProvisionalDataId::MachineModel)) {
             return Failure<std::vector<CsvRow>>(
                 ErrorCode::InvalidArgument,
                 "CSV line " + std::to_string(lineNumber) +
@@ -324,6 +323,59 @@ Result<std::vector<CsvRow>> ReadRows(std::istream& input) {
     }
 
     return Result<std::vector<CsvRow>>::Success(std::move(rows));
+}
+
+Result<MachineModel> ParseMachineModelCode(const std::string& value) {
+    if (value == "provisional-model-1") {
+        return Result<MachineModel>::Success(MachineModel::ProvisionalModel1);
+    }
+    if (value == "provisional-model-2") {
+        return Result<MachineModel>::Success(MachineModel::ProvisionalModel2);
+    }
+    if (value == "provisional-model-3") {
+        return Result<MachineModel>::Success(MachineModel::ProvisionalModel3);
+    }
+    return Failure<MachineModel>(
+        ErrorCode::InvalidResponse,
+        "CSV machine model code is not recognized exactly.");
+}
+
+Result<MachineModel> ExtractMachineModel(const std::vector<CsvRow>& rows) {
+    std::optional<MachineModel> model;
+    for (const auto& row : rows) {
+        if (row.address.dataId != ToDataId(ProvisionalDataId::MachineModel)) {
+            continue;
+        }
+        if (row.address.subId1 != 0U || row.address.subId2 != 0U) {
+            return Failure<MachineModel>(
+                ErrorCode::InvalidArgument,
+                "MachineModel CSV row requires sub_id1=0 and sub_id2=0.");
+        }
+
+        const auto parsed = ParseMachineModelCode(row.value);
+        if (!parsed.HasValue()) {
+            return parsed;
+        }
+        if (!model.has_value()) {
+            if (row.offset != std::chrono::milliseconds::zero()) {
+                return Failure<MachineModel>(
+                    ErrorCode::InvalidArgument,
+                    "MachineModel must be declared at 0 ms.");
+            }
+            model = parsed.Value();
+        } else if (*model != parsed.Value()) {
+            return Failure<MachineModel>(
+                ErrorCode::InvalidArgument,
+                "MachineModel must not change during one CSV scenario.");
+        }
+    }
+
+    if (!model.has_value()) {
+        return Failure<MachineModel>(
+            ErrorCode::InvalidArgument,
+            "Mock response CSV must declare MachineModel at 0 ms.");
+    }
+    return Result<MachineModel>::Success(*model);
 }
 
 Result<std::string> Lookup(
@@ -944,6 +996,11 @@ Result<FakeScenario> CsvScenarioLoader::Parse(std::istream& input) {
             "Mock response CSV must contain a complete frame at 0 ms.");
     }
 
+    const auto model = ExtractMachineModel(rows);
+    if (!model.HasValue()) {
+        return Result<FakeScenario>::Failure(model.ErrorValue());
+    }
+
     ResponseMap responses;
     std::vector<FakeScenarioFrame> frames;
     TimePoint lastSuccessfulRead(Duration::zero());
@@ -969,7 +1026,7 @@ Result<FakeScenario> CsvScenarioLoader::Parse(std::istream& input) {
         version = version.Next();
     }
 
-    return FakeScenario::Create(std::move(frames));
+    return FakeScenario::Create(model.Value(), std::move(frames));
 }
 
 }  // namespace ShelfManager::Infrastructure::Fake
