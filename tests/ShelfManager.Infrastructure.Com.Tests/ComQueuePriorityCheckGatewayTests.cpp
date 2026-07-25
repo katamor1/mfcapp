@@ -54,7 +54,7 @@ QueuePriorityCheckRequest RequestWithUnicodeInstruction() {
         {MachiningInstructionToolUsage{
             MachiningInstructionName("加工ステップ"),
             InstructionOrder::Create(1U).Value(),
-            {ToolUsageRequirement{1U, 12U}}}}}}};
+            {ToolUsageRequirement{ToolIdIdentifier{1U}, 12U}}}}}}};
 }
 
 TEST(ComQueuePriorityCheckGatewayTests, ConvertsTypedRequestToBstrAndParsesOutput) {
