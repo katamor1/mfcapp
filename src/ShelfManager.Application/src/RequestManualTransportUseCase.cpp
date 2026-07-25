@@ -62,12 +62,14 @@ RequestManualTransportUseCase::RequestManualTransportUseCase(
     IMachineCommandGateway& commandGateway,
     IMachineStateReader& stateReader,
     OperationStateStore& operationStateStore,
+    const IMachineModelProfileSource& profileSource,
     ShelfManager::Domain::ManualTransportPolicy policy)
     : snapshotStore_(snapshotStore),
       authorization_(authorization),
       commandGateway_(commandGateway),
       stateReader_(stateReader),
       operationStateStore_(operationStateStore),
+      profileSource_(profileSource),
       policy_(std::move(policy)) {}
 
 ShelfManager::Domain::Result<void> RequestManualTransportUseCase::Execute(
@@ -76,6 +78,13 @@ ShelfManager::Domain::Result<void> RequestManualTransportUseCase::Execute(
     const ShelfManager::Domain::WorkpieceId workpieceId,
     ShelfManager::Domain::TransportDestination destination) {
     using namespace ShelfManager::Domain;
+
+    // SAFETY: 機種未確定または不一致時は、認証問い合わせや搬送条件評価より前に
+    // 終了し、非冪等な搬送要求を送信しない。
+    const auto profile = profileSource_.RequireProfile();
+    if (!profile.HasValue()) {
+        return Result<void>::Failure(profile.ErrorValue());
+    }
 
     const auto snapshot = snapshotStore_.Current();
     if (!snapshot) {
@@ -121,6 +130,13 @@ ShelfManager::Domain::Result<void> RequestManualTransportUseCase::Execute(
             operationId)});
     if (!decision.allowed) {
         return Result<void>::Failure(DecisionError(decision.reason));
+    }
+
+    // SAFETY: 認証・搬送条件の確認中に機種不一致がラッチされた場合、
+    // 外部Gateway直前の再確認で停止する。
+    const auto profileBeforeRequest = profileSource_.RequireProfile();
+    if (!profileBeforeRequest.HasValue()) {
+        return Result<void>::Failure(profileBeforeRequest.ErrorValue());
     }
 
     const auto receipt = commandGateway_.RequestTransport(TransportRequest{
