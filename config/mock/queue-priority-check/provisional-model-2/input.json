@@ -1,0 +1,32 @@
+{
+  "Root": {
+    "Workpieces": [
+      {
+        "WorkpieceId": 1,
+        "QueuePriority": 1,
+        "MachiningInstructionRef": [
+          {
+            "MachiningInstructionName": "step1",
+            "InstructionOrder": 1,
+            "Tools": [
+              {
+                "Toolname": "DRILL_D10",
+                "UsageTime": 30
+              }
+            ]
+          },
+          {
+            "MachiningInstructionName": "step2",
+            "InstructionOrder": 2,
+            "Tools": [
+              {
+                "Toolname": "DRILL_D10",
+                "UsageTime": 50
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
