@@ -37,6 +37,11 @@ struct ToolIdIdentifier final {
 // 空文字と先頭・末尾のASCII空白を拒否し、表記を補正せず保持する。
 class ToolNameIdentifier final {
 public:
+    ToolNameIdentifier(const ToolNameIdentifier&) = default;
+    ToolNameIdentifier& operator=(const ToolNameIdentifier&) = default;
+    ToolNameIdentifier(ToolNameIdentifier&&) noexcept = default;
+    ToolNameIdentifier& operator=(ToolNameIdentifier&&) noexcept = default;
+
     [[nodiscard]] static Result<ToolNameIdentifier> Create(std::string value);
 
     [[nodiscard]] const std::string& Value() const noexcept;
@@ -69,6 +74,13 @@ private:
 // どちらか片方だけの状態を構築できないようFactory経由で生成する。
 class ToolGroupSerialIdentifier final {
 public:
+    ToolGroupSerialIdentifier(const ToolGroupSerialIdentifier&) = default;
+    ToolGroupSerialIdentifier& operator=(
+        const ToolGroupSerialIdentifier&) = default;
+    ToolGroupSerialIdentifier(ToolGroupSerialIdentifier&&) noexcept = default;
+    ToolGroupSerialIdentifier& operator=(
+        ToolGroupSerialIdentifier&&) noexcept = default;
+
     [[nodiscard]] static Result<ToolGroupSerialIdentifier> Create(
         std::string group,
         std::string serial);
