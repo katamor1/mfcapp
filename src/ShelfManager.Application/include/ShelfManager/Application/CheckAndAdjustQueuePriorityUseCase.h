@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "ShelfManager/Application/IMachineCommandGateway.h"
+#include "ShelfManager/Application/IMachineModelProfileSource.h"
 #include "ShelfManager/Application/IMachineStateReader.h"
 #include "ShelfManager/Application/IQueuePriorityCheckGateway.h"
 #include "ShelfManager/Application/MachineSnapshotStore.h"
@@ -31,12 +32,14 @@ public:
         MachineSnapshotStore& snapshotStore,
         IQueuePriorityCheckGateway& checkGateway,
         IMachineCommandGateway& commandGateway,
-        IMachineStateReader& stateReader);
+        IMachineStateReader& stateReader,
+        const IMachineModelProfileSource& profileSource);
 
     // 指定SnapshotVersionに対応する加工可否判定を実行し、
     // ExecutableがNGのWorkpieceをQueuePriority末尾群へ移動する。
     //
     // 前提:
+    // - 機種プロファイルが確定済みで、不一致がラッチされていないこと。
     // - expectedVersionが現在のConnected／FreshなSnapshotと一致すること。
     // - requestが現在キュー全体を同じ順序・順位で含むこと。
     //
@@ -44,8 +47,8 @@ public:
     // - 必要な順位書込みを一度行い、Standard読戻しで全変更値を確認する。
     // - firstExecutableWorkpieceは調整後の搬送候補であり、搬送完了を意味しない。
     //
-    // SAFETY: API失敗、不正応答、Snapshot競合、書込み拒否、読戻し不一致では
-    // 自動運転開始または加工場搬送を確定してはならない。
+    // SAFETY: API失敗、不正応答、機種不一致、Snapshot競合、書込み拒否、
+    // 読戻し不一致では自動運転開始または加工場搬送を確定してはならない。
     [[nodiscard]] ShelfManager::Domain::Result<
         CheckAndAdjustQueuePriorityOutcome>
     Execute(
@@ -66,6 +69,7 @@ private:
     IQueuePriorityCheckGateway& checkGateway_;
     IMachineCommandGateway& commandGateway_;
     IMachineStateReader& stateReader_;
+    const IMachineModelProfileSource& profileSource_;
 };
 
 }  // namespace ShelfManager::Application
