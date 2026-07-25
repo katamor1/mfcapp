@@ -45,11 +45,11 @@ void DrawLamp(
 void DrawSingleLine(
     CDC& dc,
     const std::wstring& text,
-    const CRect& bounds) {
+    CRect bounds) {
     dc.DrawText(
         text.c_str(),
         -1,
-        const_cast<CRect&>(bounds),
+        bounds,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 }
 
