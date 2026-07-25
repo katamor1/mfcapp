@@ -3,6 +3,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include <utility>
 
 namespace ShelfManager::Domain {
 namespace {
