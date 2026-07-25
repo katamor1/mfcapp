@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <utility>
 #include <vector>
 
 #include "ShelfManager/Infrastructure/Fake/FakeMachineGateway.h"
