@@ -42,7 +42,8 @@ public:
     // 存在するWorkpieceを選択し、詳細のOnDemand取得を要求する。順位変更は行わない。
     void SelectWorkpiece(ShelfManager::Domain::WorkpieceId workpieceId);
 
-    // 現在選択を一段移動する非同期操作を登録する。無効状態では登録しない。
+    // 選択済みWorkpieceの非同期操作登録を試みる。canMoveUp／canMoveDownは
+    // ユーザー操作を抑止する表示状態であり、安全条件はWorker上のUse Caseでも再確認する。
     void MoveUp();
     void MoveDown();
 
