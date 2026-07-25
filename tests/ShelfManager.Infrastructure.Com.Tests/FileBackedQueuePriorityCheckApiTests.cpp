@@ -44,7 +44,7 @@ QueuePriorityCheckRequest Request() {
         {MachiningInstructionToolUsage{
             MachiningInstructionName("step1"),
             InstructionOrder::Create(1U).Value(),
-            {ToolUsageRequirement{1U, 12U}}}}}}};
+            {ToolUsageRequirement{ToolIdIdentifier{1U}, 12U}}}}}}};
 }
 
 TEST(FileBackedQueuePriorityCheckApiTests, SuppliesJsonThroughTheSameBstrGateway) {
