@@ -3,6 +3,7 @@
 #include <memory>
 
 #include "ShelfManager/Application/IOperationCompletionSink.h"
+#include "ShelfManager/Application/MachineModelSession.h"
 #include "ShelfManager/Application/MachineSnapshotStore.h"
 #include "ShelfManager/Application/OperationExecutor.h"
 #include "ShelfManager/Application/OperationStateStore.h"
@@ -113,13 +114,14 @@ std::shared_ptr<const MachineSnapshot> InitialSnapshot() {
 }
 
 struct ManualPresenterFixture final {
-    ManualPresenterFixture()
+    explicit ManualPresenterFixture(const bool resolved = true)
         : useCase(
               snapshotStore,
               authorization,
               machinePort,
               machinePort,
-              operationStore),
+              operationStore,
+              machineModelSession),
           executor(clock, operationStore, completionSink),
           presenter(
               view,
@@ -128,7 +130,12 @@ struct ManualPresenterFixture final {
               authorization,
               operationStore,
               executor,
-              useCase) {
+              useCase,
+              machineModelSession) {
+        if (resolved) {
+            EXPECT_TRUE(machineModelSession.Observe(
+                MachineModel::ProvisionalModel1));
+        }
         const auto published = snapshotStore.Publish(InitialSnapshot());
         EXPECT_TRUE(published.HasValue());
     }
@@ -149,6 +156,7 @@ struct ManualPresenterFixture final {
     UiStateStore uiState;
     OperationStateStore operationStore;
     NoopCompletionSink completionSink;
+    MachineModelSession machineModelSession;
     RequestManualTransportUseCase useCase;
     OperationExecutor executor;
     CapturingManualTransportView view;
@@ -169,7 +177,8 @@ TEST(ManualTransportPresenterTests, RequiresWorkpieceAndDestinationSelection) {
         fixture.view.last.denialReasonText);
 }
 
-TEST(ManualTransportPresenterTests, EnablesSubmitOnlyForAllowedManualRequest) {
+TEST(ManualTransportPresenterTests,
+     EnablesSubmitOnlyForAllowedManualRequest) {
     ManualPresenterFixture fixture;
 
     fixture.SelectValidRequest();
@@ -215,6 +224,35 @@ TEST(
     EXPECT_EQ(
         L"自動スケジュール運転中は手動搬送できません。",
         fixture.view.last.denialReasonText);
+}
+
+TEST(ManualTransportPresenterTests,
+     UnresolvedModelKeepsOptionsButDisablesSubmit) {
+    ManualPresenterFixture fixture(false);
+    fixture.SelectValidRequest();
+
+    EXPECT_FALSE(fixture.view.last.workpieces.empty());
+    EXPECT_FALSE(fixture.view.last.destinations.empty());
+    EXPECT_FALSE(fixture.view.last.submitEnabled);
+    EXPECT_NE(std::wstring::npos,
+              fixture.view.last.denialReasonText.find(L"機種情報を確定"));
+}
+
+TEST(ManualTransportPresenterTests,
+     MismatchLatchDisablesSubmitAndRequestsRestart) {
+    ManualPresenterFixture fixture;
+    fixture.SelectValidRequest();
+    ASSERT_TRUE(fixture.view.last.submitEnabled);
+    ASSERT_TRUE(fixture.machineModelSession.Observe(
+        MachineModel::ProvisionalModel2));
+
+    fixture.presenter.OnSnapshotChanged();
+
+    EXPECT_FALSE(fixture.view.last.workpieces.empty());
+    EXPECT_FALSE(fixture.view.last.destinations.empty());
+    EXPECT_FALSE(fixture.view.last.submitEnabled);
+    EXPECT_NE(std::wstring::npos,
+              fixture.view.last.denialReasonText.find(L"再起動"));
 }
 
 }  // namespace
