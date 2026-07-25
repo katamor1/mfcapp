@@ -19,11 +19,13 @@ CheckAndAdjustQueuePriorityUseCase::CheckAndAdjustQueuePriorityUseCase(
     MachineSnapshotStore& snapshotStore,
     IQueuePriorityCheckGateway& checkGateway,
     IMachineCommandGateway& commandGateway,
-    IMachineStateReader& stateReader)
+    IMachineStateReader& stateReader,
+    const IMachineModelProfileSource& profileSource)
     : snapshotStore_(snapshotStore),
       checkGateway_(checkGateway),
       commandGateway_(commandGateway),
-      stateReader_(stateReader) {}
+      stateReader_(stateReader),
+      profileSource_(profileSource) {}
 
 ShelfManager::Domain::Result<CheckAndAdjustQueuePriorityOutcome>
 CheckAndAdjustQueuePriorityUseCase::Execute(
@@ -31,6 +33,14 @@ CheckAndAdjustQueuePriorityUseCase::Execute(
     const ShelfManager::Domain::SnapshotVersion expectedVersion,
     const ShelfManager::Domain::QueuePriorityCheckRequest& request) {
     using namespace ShelfManager::Domain;
+
+    // SAFETY: 機種未確定または不一致時は、Snapshot確認より前に失敗させ、
+    // 加工可否判定JSONを外部システムへ送信しない。
+    const auto profile = profileSource_.RequireProfile();
+    if (!profile.HasValue()) {
+        return Result<CheckAndAdjustQueuePriorityOutcome>::Failure(
+            profile.ErrorValue());
+    }
 
     const auto snapshot = snapshotStore_.Current();
     if (!snapshot) {
@@ -91,6 +101,14 @@ CheckAndAdjustQueuePriorityUseCase::Execute(
                 false,
                 adjustment.Value().orderedWorkpieceIds,
                 adjustment.Value().firstExecutableWorkpiece});
+    }
+
+    // SAFETY: 判定完了後に監視スレッドが機種不一致を検出した場合、
+    // 古いプロファイルに基づく結果を順位書込みへ使用しない。
+    const auto profileBeforeWrite = profileSource_.RequireProfile();
+    if (!profileBeforeWrite.HasValue()) {
+        return Result<CheckAndAdjustQueuePriorityOutcome>::Failure(
+            profileBeforeWrite.ErrorValue());
     }
 
     const auto receipt = commandGateway_.ApplyPriorityChange(plan);
