@@ -42,6 +42,17 @@ void DrawLamp(
     dc.SelectObject(previousBrush);
 }
 
+void DrawSingleLine(
+    CDC& dc,
+    const std::wstring& text,
+    const CRect& bounds) {
+    dc.DrawText(
+        text.c_str(),
+        -1,
+        const_cast<CRect&>(bounds),
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+}
+
 }  // namespace
 
 BEGIN_MESSAGE_MAP(CMachineStatusView, CWnd)
@@ -108,7 +119,7 @@ void CMachineStatusView::OnPaint() {
     const auto lampSize = Scale(12);
     const auto margin = Scale(14);
     const auto textGap = Scale(8);
-    const auto segmentGap = Scale(26);
+    const auto segmentGap = Scale(18);
     auto x = margin;
     const auto lampTop = (client.Height() - lampSize) / 2;
 
@@ -116,46 +127,37 @@ void CMachineStatusView::OnPaint() {
     DrawLamp(dc, connectionLamp, viewModel_.connectionLamp);
     x = connectionLamp.right + textGap;
 
-    CRect connectionText(
-        x,
-        0,
-        x + Scale(145),
-        client.bottom);
-    dc.DrawText(
-        viewModel_.connectionText.c_str(),
-        -1,
-        connectionText,
-        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    CRect connectionText(x, 0, x + Scale(105), client.bottom);
+    DrawSingleLine(dc, viewModel_.connectionText, connectionText);
     x = connectionText.right + segmentGap;
 
     CRect machineLamp(x, lampTop, x + lampSize, lampTop + lampSize);
     DrawLamp(dc, machineLamp, viewModel_.machineLamp);
     x = machineLamp.right + textGap;
 
-    CRect machineText(x, 0, x + Scale(190), client.bottom);
-    dc.DrawText(
-        viewModel_.machineText.c_str(),
-        -1,
-        machineText,
-        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    CRect machineText(x, 0, x + Scale(155), client.bottom);
+    DrawSingleLine(dc, viewModel_.machineText, machineText);
     x = machineText.right + segmentGap;
 
-    CRect freshnessText(x, 0, x + Scale(210), client.bottom);
     dc.SetTextColor(kSubtleTextColor);
-    dc.DrawText(
-        viewModel_.freshnessText.c_str(),
-        -1,
-        freshnessText,
-        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    CRect freshnessText(x, 0, x + Scale(145), client.bottom);
+    DrawSingleLine(dc, viewModel_.freshnessText, freshnessText);
     x = freshnessText.right + segmentGap;
+
+    CRect machineModelText(x, 0, x + Scale(135), client.bottom);
+    DrawSingleLine(dc, viewModel_.machineModelText, machineModelText);
+    x = machineModelText.right + segmentGap;
+
+    CRect operationAvailabilityText(x, 0, x + Scale(185), client.bottom);
+    DrawSingleLine(
+        dc,
+        viewModel_.operationAvailabilityText,
+        operationAvailabilityText);
+    x = operationAvailabilityText.right + segmentGap;
 
     CRect messageText(x, 0, client.right - margin, client.bottom);
     dc.SetTextColor(kTextColor);
-    dc.DrawText(
-        viewModel_.messageText.c_str(),
-        -1,
-        messageText,
-        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    DrawSingleLine(dc, viewModel_.messageText, messageText);
 }
 
 BOOL CMachineStatusView::OnEraseBkgnd(CDC* /*dc*/) {
