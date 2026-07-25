@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ShelfManager/Application/IMachineCommandGateway.h"
+#include "ShelfManager/Application/IMachineModelProfileSource.h"
 #include "ShelfManager/Application/IMachineStateReader.h"
 #include "ShelfManager/Application/MachineSnapshotStore.h"
 #include "ShelfManager/Application/OperationStateStore.h"
@@ -16,9 +17,10 @@ public:
         MachineSnapshotStore& snapshotStore,
         IMachineCommandGateway& commandGateway,
         IMachineStateReader& stateReader,
-        OperationStateStore& operationStateStore);
+        OperationStateStore& operationStateStore,
+        const IMachineModelProfileSource& profileSource);
 
-    // expectedVersionの最新Connected／Fresh Snapshotだけへ適用する。
+    // 機種確定済みかつexpectedVersionの最新Connected／Fresh Snapshotだけへ適用する。
     // Gateway受付だけでは成功とせず、全assignmentのdesired一致後に成功を返す。
     [[nodiscard]] ShelfManager::Domain::Result<void> Execute(
         OperationId operationId,
@@ -31,6 +33,7 @@ private:
     IMachineCommandGateway& commandGateway_;
     IMachineStateReader& stateReader_;
     OperationStateStore& operationStateStore_;
+    const IMachineModelProfileSource& profileSource_;
 };
 
 }  // namespace ShelfManager::Application
