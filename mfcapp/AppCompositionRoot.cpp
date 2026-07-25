@@ -3,6 +3,7 @@
 #include "AppCompositionRoot.h"
 
 #include "AppShellView.h"
+#include "MachineModelStateMessageSink.h"
 #include "OperationCompletionMessageSink.h"
 #include "SnapshotMessageSink.h"
 
@@ -15,6 +16,8 @@
 #include <string>
 #include <string_view>
 
+#include "ShelfManager/Application/CheckAndAdjustQueuePriorityUseCase.h"
+#include "ShelfManager/Application/MachineModelSession.h"
 #include "ShelfManager/Application/MachineSnapshotAssembler.h"
 #include "ShelfManager/Application/MachineSnapshotStore.h"
 #include "ShelfManager/Application/MonitoringCoordinator.h"
@@ -23,7 +26,10 @@
 #include "ShelfManager/Application/MoveWorkpiecePriorityUseCase.h"
 #include "ShelfManager/Application/OperationExecutor.h"
 #include "ShelfManager/Application/OperationStateStore.h"
+#include "ShelfManager/Application/QueuePriorityCheckRequestFactory.h"
 #include "ShelfManager/Application/RequestManualTransportUseCase.h"
+#include "ShelfManager/Infrastructure/Com/ComQueuePriorityCheckGateway.h"
+#include "ShelfManager/Infrastructure/Com/FileBackedQueuePriorityCheckApi.h"
 #include "ShelfManager/Infrastructure/Fake/CsvScenarioLoader.h"
 #include "ShelfManager/Infrastructure/Fake/FakeAuthorizationPort.h"
 #include "ShelfManager/Infrastructure/Fake/FakeMachineGateway.h"
@@ -37,6 +43,7 @@
 namespace {
 
 using ShelfManager::Domain::ErrorCode;
+using ShelfManager::Domain::MachineModel;
 using ShelfManager::Domain::Result;
 
 class SteadyClock final : public ShelfManager::Application::IClock {
@@ -151,7 +158,7 @@ Result<StartupOptions> ParseStartupOptions() {
     return Result<StartupOptions>::Success(std::move(options));
 }
 
-std::filesystem::path ResolveMockCsvPath(
+std::filesystem::path ResolveApplicationPath(
     const std::filesystem::path& requestedPath) {
     std::error_code error;
     if (requestedPath.is_absolute()) {
@@ -189,6 +196,18 @@ std::filesystem::path ResolveMockCsvPath(
     return requestedPath;
 }
 
+std::filesystem::path QueuePriorityOutputPath(const MachineModel model) {
+    switch (model) {
+        case MachineModel::ProvisionalModel1:
+            return "config/mock/queue-priority-check/output.json";
+        case MachineModel::ProvisionalModel2:
+            return "config/mock/queue-priority-check/provisional-model-2/output.json";
+        case MachineModel::ProvisionalModel3:
+            return "config/mock/queue-priority-check/provisional-model-3/output.json";
+    }
+    return "config/mock/queue-priority-check/output.json";
+}
+
 }  // namespace
 
 class AppCompositionRoot::Impl final {
@@ -218,16 +237,22 @@ public:
         visualRackPresenter_.reset();
         machineStatusPresenter_.reset();
         operationExecutor_.reset();
-        manualTransportUseCase_.reset();
-        movePriorityUseCase_.reset();
         monitoringWorker_.reset();
         coordinator_.reset();
+        manualTransportUseCase_.reset();
+        movePriorityUseCase_.reset();
+        checkAndAdjustUseCase_.reset();
+        queuePriorityRequestFactory_.reset();
+        queuePriorityCheckGateway_.reset();
+        rawQueuePriorityCheckApi_.reset();
         operationCompletionSink_.reset();
+        machineModelStateSink_.reset();
         snapshotSink_.reset();
         monitoringPlan_.reset();
         assembler_.reset();
         operationStateStore_.reset();
         snapshotStore_.reset();
+        machineModelSession_.reset();
         authorization_.reset();
         gateway_.reset();
         clock_.reset();
@@ -241,6 +266,8 @@ public:
         gateway_;
     std::unique_ptr<ShelfManager::Infrastructure::Fake::FakeAuthorizationPort>
         authorization_;
+    std::unique_ptr<ShelfManager::Application::MachineModelSession>
+        machineModelSession_;
     std::unique_ptr<ShelfManager::Application::MachineSnapshotStore>
         snapshotStore_;
     std::unique_ptr<ShelfManager::Application::OperationStateStore>
@@ -250,17 +277,29 @@ public:
     std::unique_ptr<ShelfManager::Application::MonitoringPlanBuilder>
         monitoringPlan_;
     std::unique_ptr<SnapshotMessageSink> snapshotSink_;
+    std::unique_ptr<MachineModelStateMessageSink> machineModelStateSink_;
     std::unique_ptr<OperationCompletionMessageSink> operationCompletionSink_;
-    std::unique_ptr<ShelfManager::Application::MonitoringCoordinator>
-        coordinator_;
-    std::unique_ptr<ShelfManager::Application::MonitoringWorker>
-        monitoringWorker_;
+    std::unique_ptr<
+        ShelfManager::Infrastructure::Com::FileBackedQueuePriorityCheckApi>
+        rawQueuePriorityCheckApi_;
+    std::unique_ptr<
+        ShelfManager::Infrastructure::Com::ComQueuePriorityCheckGateway>
+        queuePriorityCheckGateway_;
+    std::unique_ptr<ShelfManager::Application::QueuePriorityCheckRequestFactory>
+        queuePriorityRequestFactory_;
+    std::unique_ptr<
+        ShelfManager::Application::CheckAndAdjustQueuePriorityUseCase>
+        checkAndAdjustUseCase_;
     std::unique_ptr<ShelfManager::Application::MoveWorkpiecePriorityUseCase>
         movePriorityUseCase_;
     std::unique_ptr<ShelfManager::Application::RequestManualTransportUseCase>
         manualTransportUseCase_;
     std::unique_ptr<ShelfManager::Application::OperationExecutor>
         operationExecutor_;
+    std::unique_ptr<ShelfManager::Application::MonitoringCoordinator>
+        coordinator_;
+    std::unique_ptr<ShelfManager::Application::MonitoringWorker>
+        monitoringWorker_;
     std::unique_ptr<ShelfManager::Presentation::MachineStatusPresenter>
         machineStatusPresenter_;
     std::unique_ptr<ShelfManager::Presentation::VisualRackPresenter>
@@ -295,12 +334,14 @@ Result<void> AppCompositionRoot::Start(CAppShellView& shell) {
         return Result<void>::Failure(options.ErrorValue());
     }
 
-    const auto csvPath = ResolveMockCsvPath(options.Value().mockCsvPath);
+    const auto csvPath = ResolveApplicationPath(options.Value().mockCsvPath);
     const auto scenario =
         ShelfManager::Infrastructure::Fake::CsvScenarioLoader::Load(csvPath);
     if (!scenario.HasValue()) {
         return Result<void>::Failure(scenario.ErrorValue());
     }
+    const auto queuePriorityOutputPath = ResolveApplicationPath(
+        QueuePriorityOutputPath(scenario.Value().Model()));
 
     try {
         impl_->shell_ = &shell;
@@ -314,6 +355,10 @@ Result<void> AppCompositionRoot::Start(CAppShellView& shell) {
             options.Value().fakeAuthorized
                 ? ShelfManager::Domain::OperatorAuthorization::Authorized
                 : ShelfManager::Domain::OperatorAuthorization::Denied);
+        // SAFETY: Sessionは最初のStandard監視までUnresolvedのままとし、
+        // CSVを読めたことだけで安全関連操作を有効化しない。
+        impl_->machineModelSession_ = std::make_unique<
+            ShelfManager::Application::MachineModelSession>();
         impl_->snapshotStore_ = std::make_unique<
             ShelfManager::Application::MachineSnapshotStore>();
         impl_->operationStateStore_ = std::make_unique<
@@ -325,9 +370,49 @@ Result<void> AppCompositionRoot::Start(CAppShellView& shell) {
             impl_->clock_->Now());
         impl_->snapshotSink_ = std::make_unique<SnapshotMessageSink>(
             shell.GetSafeHwnd());
+        impl_->machineModelStateSink_ =
+            std::make_unique<MachineModelStateMessageSink>(
+                shell.GetSafeHwnd());
         impl_->operationCompletionSink_ =
             std::make_unique<OperationCompletionMessageSink>(
                 shell.GetSafeHwnd());
+        impl_->rawQueuePriorityCheckApi_ = std::make_unique<
+            ShelfManager::Infrastructure::Com::FileBackedQueuePriorityCheckApi>(
+            queuePriorityOutputPath);
+        impl_->queuePriorityCheckGateway_ = std::make_unique<
+            ShelfManager::Infrastructure::Com::ComQueuePriorityCheckGateway>(
+            *impl_->rawQueuePriorityCheckApi_,
+            *impl_->machineModelSession_);
+        impl_->queuePriorityRequestFactory_ = std::make_unique<
+            ShelfManager::Application::QueuePriorityCheckRequestFactory>(
+            *impl_->machineModelSession_);
+        impl_->checkAndAdjustUseCase_ = std::make_unique<
+            ShelfManager::Application::CheckAndAdjustQueuePriorityUseCase>(
+            *impl_->snapshotStore_,
+            *impl_->queuePriorityCheckGateway_,
+            *impl_->gateway_,
+            *impl_->gateway_,
+            *impl_->machineModelSession_);
+        impl_->movePriorityUseCase_ = std::make_unique<
+            ShelfManager::Application::MoveWorkpiecePriorityUseCase>(
+            *impl_->snapshotStore_,
+            *impl_->gateway_,
+            *impl_->gateway_,
+            *impl_->operationStateStore_,
+            *impl_->machineModelSession_);
+        impl_->manualTransportUseCase_ = std::make_unique<
+            ShelfManager::Application::RequestManualTransportUseCase>(
+            *impl_->snapshotStore_,
+            *impl_->authorization_,
+            *impl_->gateway_,
+            *impl_->gateway_,
+            *impl_->operationStateStore_,
+            *impl_->machineModelSession_);
+        impl_->operationExecutor_ = std::make_unique<
+            ShelfManager::Application::OperationExecutor>(
+            *impl_->clock_,
+            *impl_->operationStateStore_,
+            *impl_->operationCompletionSink_);
         impl_->coordinator_ = std::make_unique<
             ShelfManager::Application::MonitoringCoordinator>(
             *impl_->clock_,
@@ -335,25 +420,10 @@ Result<void> AppCompositionRoot::Start(CAppShellView& shell) {
             *impl_->monitoringPlan_,
             *impl_->assembler_,
             *impl_->snapshotStore_,
-            *impl_->snapshotSink_);
-        impl_->movePriorityUseCase_ = std::make_unique<
-            ShelfManager::Application::MoveWorkpiecePriorityUseCase>(
-            *impl_->snapshotStore_,
+            *impl_->snapshotSink_,
             *impl_->gateway_,
-            *impl_->gateway_,
-            *impl_->operationStateStore_);
-        impl_->manualTransportUseCase_ = std::make_unique<
-            ShelfManager::Application::RequestManualTransportUseCase>(
-            *impl_->snapshotStore_,
-            *impl_->authorization_,
-            *impl_->gateway_,
-            *impl_->gateway_,
-            *impl_->operationStateStore_);
-        impl_->operationExecutor_ = std::make_unique<
-            ShelfManager::Application::OperationExecutor>(
-            *impl_->clock_,
-            *impl_->operationStateStore_,
-            *impl_->operationCompletionSink_);
+            *impl_->machineModelSession_,
+            *impl_->machineModelStateSink_);
         impl_->monitoringWorker_ = std::make_unique<
             ShelfManager::Application::MonitoringWorker>(
             *impl_->coordinator_);
@@ -362,7 +432,8 @@ Result<void> AppCompositionRoot::Start(CAppShellView& shell) {
             ShelfManager::Presentation::MachineStatusPresenter>(
             shell.MachineStatusView(),
             *impl_->snapshotStore_,
-            *impl_->clock_);
+            *impl_->clock_,
+            *impl_->machineModelSession_);
         impl_->visualRackPresenter_ = std::make_unique<
             ShelfManager::Presentation::VisualRackPresenter>(
             shell.VisualRackView(),
@@ -377,7 +448,8 @@ Result<void> AppCompositionRoot::Start(CAppShellView& shell) {
             *impl_->coordinator_,
             *impl_->operationStateStore_,
             *impl_->operationExecutor_,
-            *impl_->movePriorityUseCase_);
+            *impl_->movePriorityUseCase_,
+            *impl_->machineModelSession_);
         impl_->manualTransportPresenter_ = std::make_unique<
             ShelfManager::Presentation::ManualTransportPresenter>(
             shell.ManualTransportView(),
@@ -386,7 +458,8 @@ Result<void> AppCompositionRoot::Start(CAppShellView& shell) {
             *impl_->authorization_,
             *impl_->operationStateStore_,
             *impl_->operationExecutor_,
-            *impl_->manualTransportUseCase_);
+            *impl_->manualTransportUseCase_,
+            *impl_->machineModelSession_);
 
         shell.BindMachineStatusPresenter(
             impl_->machineStatusPresenter_.get());
