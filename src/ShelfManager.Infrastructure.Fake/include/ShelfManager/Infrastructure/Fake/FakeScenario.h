@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <vector>
 
+#include "ShelfManager/Domain/MachineModel.h"
 #include "ShelfManager/Domain/MachineSnapshot.h"
 #include "ShelfManager/Domain/Result.h"
 #include "ShelfManager/Domain/WorkpieceDetail.h"
@@ -19,18 +20,21 @@ struct FakeScenarioFrame final {
     std::vector<ShelfManager::Domain::WorkpieceDetail> workpieceDetails{};
 };
 
-// 時系列のMachineSnapshotを決定論的に再生する開発・回帰テスト用Scenario。
-// COM通信、部分Fragment、読取遅延は再現せず、FakeMachineGatewayへ
-// 各時刻の完成済みSnapshotとOnDemand詳細を提供する。
+// 時系列のMachineSnapshotと、起動中不変の機種情報を提供する開発・回帰用Scenario。
+// COM通信、部分Fragment、読取遅延は再現せず、FakeMachineGatewayへ完成済み値を渡す。
 class FakeScenario final {
 public:
-    // 0msから始まり、offsetが厳密な昇順である場合だけScenarioを生成する。
+    // 機種を明示し、0msから始まる厳密昇順のFrameだけを受け付ける。
     // 入力順を並べ替えず、不正な時系列はInvalidArgumentとして拒否する。
     static ShelfManager::Domain::Result<FakeScenario> Create(
+        ShelfManager::Domain::MachineModel model,
         std::vector<FakeScenarioFrame> frames);
 
     // 加工待ち、加工中、異常中断、通信断、通信復旧を含む標準Scenarioを返す。
+    // 既存Toolid契約と対応するProvisionalModel1を使用する。
     static FakeScenario StandardDemo();
+
+    [[nodiscard]] ShelfManager::Domain::MachineModel Model() const noexcept;
 
     // elapsed以下で最も新しいFrameのindexを返す。
     // elapsedが0未満の場合も先頭Frameを返すため、常に有効なindexとなる。
@@ -43,8 +47,11 @@ public:
         ShelfManager::Domain::Duration elapsed) const noexcept;
 
 private:
-    explicit FakeScenario(std::vector<FakeScenarioFrame> frames);
+    FakeScenario(
+        ShelfManager::Domain::MachineModel model,
+        std::vector<FakeScenarioFrame> frames);
 
+    ShelfManager::Domain::MachineModel model_;
     std::vector<FakeScenarioFrame> frames_;
 };
 
