@@ -1,0 +1,34 @@
+{
+  "Root": {
+    "Workpieces": [
+      {
+        "WorkpieceId": 1,
+        "QueuePriority": 1,
+        "MachiningInstructionRef": [
+          {
+            "MachiningInstructionName": "step1",
+            "InstructionOrder": 1,
+            "Tools": [
+              {
+                "ToolGroup": "GROUP_A",
+                "ToolSerial": "00042",
+                "UsageTime": 30
+              }
+            ]
+          },
+          {
+            "MachiningInstructionName": "step2",
+            "InstructionOrder": 2,
+            "Tools": [
+              {
+                "ToolGroup": "GROUP_A",
+                "ToolSerial": "00042",
+                "UsageTime": 50
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
