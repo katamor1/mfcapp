@@ -2,6 +2,7 @@
 
 #include "ShelfManager/Application/IAuthorizationPort.h"
 #include "ShelfManager/Application/IMachineCommandGateway.h"
+#include "ShelfManager/Application/IMachineModelProfileSource.h"
 #include "ShelfManager/Application/IMachineStateReader.h"
 #include "ShelfManager/Application/MachineSnapshotStore.h"
 #include "ShelfManager/Application/OperationStateStore.h"
@@ -19,10 +20,12 @@ public:
         IMachineCommandGateway& commandGateway,
         IMachineStateReader& stateReader,
         OperationStateStore& operationStateStore,
+        const IMachineModelProfileSource& profileSource,
         ShelfManager::Domain::ManualTransportPolicy policy = {});
 
-    // 非冪等の可能性がある搬送要求を一度だけ送信し、Standard読戻しで
-    // InTransportまたは要求先への位置変化を確認した場合だけ成功する。
+    // 機種プロファイルと既存安全条件を確認した後、非冪等の可能性がある搬送要求を
+    // 一度だけ送信し、Standard読戻しでInTransportまたは要求先への位置変化を
+    // 確認した場合だけ成功する。
     [[nodiscard]] ShelfManager::Domain::Result<void> Execute(
         OperationId operationId,
         ShelfManager::Domain::SnapshotVersion expectedVersion,
@@ -35,6 +38,7 @@ private:
     IMachineCommandGateway& commandGateway_;
     IMachineStateReader& stateReader_;
     OperationStateStore& operationStateStore_;
+    const IMachineModelProfileSource& profileSource_;
     ShelfManager::Domain::ManualTransportPolicy policy_;
 };
 
