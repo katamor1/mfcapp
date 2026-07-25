@@ -10,6 +10,8 @@ namespace ShelfManager::Presentation {
 namespace {
 
 using namespace ShelfManager::Domain;
+using ShelfManager::Application::MachineModelSessionSnapshot;
+using ShelfManager::Application::MachineModelSessionState;
 
 std::wstring StatusText(const WorkpieceStatus status) {
     switch (status) {
@@ -125,6 +127,19 @@ std::wstring DenialText(const TransportDenialReason reason) {
     return L"手動搬送条件を確認できません。";
 }
 
+bool IsMachineModelSafe(const MachineModelSessionSnapshot& state) {
+    return state.state == MachineModelSessionState::Resolved &&
+           state.profile.has_value();
+}
+
+std::wstring MachineModelDenialText(
+    const MachineModelSessionSnapshot& state) {
+    if (state.state == MachineModelSessionState::MismatchLatched) {
+        return L"起動時と異なる機種を検出したため、手動搬送できません。アプリを再起動してください。";
+    }
+    return L"機種情報を確定できないため、手動搬送できません。";
+}
+
 }  // namespace
 
 ManualTransportPresenter::ManualTransportPresenter(
@@ -135,6 +150,7 @@ ManualTransportPresenter::ManualTransportPresenter(
     ShelfManager::Application::OperationStateStore& operationStateStore,
     ShelfManager::Application::OperationExecutor& executor,
     ShelfManager::Application::RequestManualTransportUseCase& useCase,
+    const ShelfManager::Application::IMachineModelProfileSource& profileSource,
     ShelfManager::Domain::ManualTransportPolicy policy)
     : view_(view),
       snapshotStore_(snapshotStore),
@@ -143,6 +159,7 @@ ManualTransportPresenter::ManualTransportPresenter(
       operationStateStore_(operationStateStore),
       executor_(executor),
       useCase_(useCase),
+      profileSource_(profileSource),
       policy_(std::move(policy)) {}
 
 void ManualTransportPresenter::Activate() {
@@ -184,6 +201,13 @@ void ManualTransportPresenter::SelectDestination(
 }
 
 void ManualTransportPresenter::Submit() {
+    const auto machineModelState = profileSource_.CurrentState();
+    if (!IsMachineModelSafe(machineModelState)) {
+        lastMessage_ = MachineModelDenialText(machineModelState);
+        view_.Render(BuildViewModel());
+        return;
+    }
+
     const auto snapshot = snapshotStore_.Current();
     const auto selectedWorkpiece = uiState_.SelectedWorkpiece();
     const auto selectedDestination = uiState_.SelectedDestination();
@@ -287,6 +311,15 @@ ManualTransportViewModel ManualTransportPresenter::BuildViewModel() {
     viewModel.authorizationText = AuthorizationText(authorization);
     viewModel.modeText = ModeText(snapshot->health.mode);
     viewModel.freshnessText = FreshnessText(snapshot->freshness.state);
+
+    const auto machineModelState = profileSource_.CurrentState();
+    if (!IsMachineModelSafe(machineModelState)) {
+        // SAFETY: 選択肢と監視情報は表示したまま、機種理由をPolicyより優先する。
+        viewModel.denialReasonText =
+            MachineModelDenialText(machineModelState);
+        viewModel.submitEnabled = false;
+        return viewModel;
+    }
 
     if (!selectedWorkpiece.has_value() || !selectedDestination.has_value()) {
         viewModel.denialReasonText = L"Workpieceと搬送先を選択してください。";
