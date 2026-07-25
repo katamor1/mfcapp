@@ -1,0 +1,19 @@
+{
+  "Root": {
+    "Workpieces": [
+      {
+        "WorkpieceId": 1,
+        "QueuePriority": 1,
+        "Tools": [
+          {
+            "Toolname": "DRILL_D10",
+            "TotalUsageTime": 80,
+            "RemainLifeTime": 20,
+            "Status": "OK"
+          }
+        ],
+        "Executable": "OK"
+      }
+    ]
+  }
+}
