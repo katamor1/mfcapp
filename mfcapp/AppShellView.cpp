@@ -4,6 +4,7 @@
 
 #include <algorithm>
 
+#include "MachineModelStateMessageSink.h"
 #include "OperationCompletionMessageSink.h"
 #include "ShelfManager/Application/IClock.h"
 #include "ShelfManager/Application/OperationStateStore.h"
@@ -41,6 +42,9 @@ BEGIN_MESSAGE_MAP(CAppShellView, CWnd)
     ON_COMMAND(kMachiningQueueButtonId, &CAppShellView::OnMachiningQueue)
     ON_COMMAND(kManualTransportButtonId, &CAppShellView::OnManualTransport)
     ON_MESSAGE(WM_APP_SNAPSHOT_CHANGED, &CAppShellView::OnSnapshotChanged)
+    ON_MESSAGE(
+        WM_APP_MACHINE_MODEL_CHANGED,
+        &CAppShellView::OnMachineModelStateChanged)
     ON_MESSAGE(WM_APP_OPERATION_COMPLETED, &CAppShellView::OnOperationCompleted)
     ON_MESSAGE(WM_DPICHANGED, &CAppShellView::OnDpiChanged)
 END_MESSAGE_MAP()
@@ -296,6 +300,23 @@ LRESULT CAppShellView::OnSnapshotChanged(
     }
     if (visualRackPresenter_ != nullptr) {
         visualRackPresenter_->OnSnapshotChanged();
+    }
+    if (machiningQueuePresenter_ != nullptr) {
+        machiningQueuePresenter_->OnSnapshotChanged();
+    }
+    if (manualTransportPresenter_ != nullptr) {
+        manualTransportPresenter_->OnSnapshotChanged();
+    }
+    return 0;
+}
+
+LRESULT CAppShellView::OnMachineModelStateChanged(
+    WPARAM /*unused*/,
+    LPARAM /*unused*/) {
+    // SAFETY: Messageへ状態値やPointerを載せず、各Presenterが同じProfile Sourceから
+    // 最新Session状態を再取得する。棚の閲覧表示は機種状態に依存しないため更新しない。
+    if (machineStatusPresenter_ != nullptr) {
+        machineStatusPresenter_->OnSnapshotChanged();
     }
     if (machiningQueuePresenter_ != nullptr) {
         machiningQueuePresenter_->OnSnapshotChanged();
