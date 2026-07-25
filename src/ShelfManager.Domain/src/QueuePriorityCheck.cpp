@@ -27,12 +27,12 @@ const WorkpieceExecutabilityResult* FindResult(
 
 Result<void> ValidateToolResults(
     const WorkpieceExecutabilityResult& workpiece) {
-    std::set<std::uint64_t> toolIds;
+    std::set<ToolIdentifier, ToolIdentifierLess> identifiers;
     for (const auto& tool : workpiece.tools) {
-        if (!toolIds.insert(tool.toolId).second) {
+        if (!identifiers.insert(tool.identifier).second) {
             return Result<void>::Failure(
                 {ErrorCode::InvalidResponse,
-                 "Queue-priority check response contains a duplicate tool ID."});
+                 "Queue-priority check response contains a duplicate tool identifier."});
         }
         if (tool.status != ToolAvailabilityStatus::NotFound &&
             !tool.remainLifeTime.has_value()) {
