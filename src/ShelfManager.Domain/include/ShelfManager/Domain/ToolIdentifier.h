@@ -42,8 +42,12 @@ public:
     ToolNameIdentifier(ToolNameIdentifier&&) noexcept = default;
     ToolNameIdentifier& operator=(ToolNameIdentifier&&) noexcept = default;
 
+    // 成功時は入力byte sequenceをtrim、大小文字変換、Unicode正規化せず保持する。
+    // 空文字または先頭・末尾のASCII空白はInvalidArgumentとして拒否する。
+    // UTF-8としての妥当性確認はJSON／COM Adapter境界が担当する。
     [[nodiscard]] static Result<ToolNameIdentifier> Create(std::string value);
 
+    // 検証済み表記への非所有参照を返す。Identifierの寿命を越えて保持してはならない。
     [[nodiscard]] const std::string& Value() const noexcept;
 
     friend bool operator==(
@@ -81,10 +85,13 @@ public:
     ToolGroupSerialIdentifier& operator=(
         ToolGroupSerialIdentifier&&) noexcept = default;
 
+    // 両方の値が有効な場合だけ生成し、入力表記とToolSerialの先頭ゼロを維持する。
+    // どちらかが空、または先頭・末尾にASCII空白を含む場合はInvalidArgumentを返す。
     [[nodiscard]] static Result<ToolGroupSerialIdentifier> Create(
         std::string group,
         std::string serial);
 
+    // 検証済み表記への非所有参照を返す。Identifierの寿命を越えて保持してはならない。
     [[nodiscard]] const std::string& Group() const noexcept;
     [[nodiscard]] const std::string& Serial() const noexcept;
 
@@ -121,16 +128,20 @@ using ToolIdentifier = std::variant<
     ToolGroupSerialIdentifier>;
 
 // Workpiece単位の工具集約Mapで使用する決定論的な順序。
+// variantの形式順と補正前の値だけを比較し、工具の優先度や同義語関係は表さない。
 struct ToolIdentifierLess final {
     [[nodiscard]] bool operator()(
         const ToolIdentifier& left,
         const ToolIdentifier& right) const noexcept;
 };
 
+// variantが保持する形式を返す。値の検証や機種プロファイルとの照合は行わない。
 [[nodiscard]] ToolIdentifierFormat FormatOf(
     const ToolIdentifier& identifier) noexcept;
 
-// 機種プロファイルと工具識別形式が一致する場合だけ成功する。
+// 機種プロファイルと工具識別形式が完全一致する場合だけ成功する。
+// SAFETY: 別形式への変換や既定形式へのフォールバックを行わず、
+// 不一致はUnsupportedDataとして外部送信前に停止する。
 [[nodiscard]] Result<void> ValidateToolIdentifierForProfile(
     const MachineModelProfile& profile,
     const ToolIdentifier& identifier);
