@@ -2,8 +2,9 @@
 
 #include <algorithm>
 #include <limits>
-#include <set>
 #include <utility>
+
+#include "ShelfManager/Domain/QueuePriorityCheckContractValidator.h"
 
 namespace ShelfManager::Domain {
 namespace {
@@ -23,25 +24,6 @@ const WorkpieceExecutabilityResult* FindResult(
             return candidate.workpieceId == workpieceId;
         });
     return found == response.workpieces.end() ? nullptr : &*found;
-}
-
-Result<void> ValidateToolResults(
-    const WorkpieceExecutabilityResult& workpiece) {
-    std::set<ToolIdentifier, ToolIdentifierLess> identifiers;
-    for (const auto& tool : workpiece.tools) {
-        if (!identifiers.insert(tool.identifier).second) {
-            return Result<void>::Failure(
-                {ErrorCode::InvalidResponse,
-                 "Queue-priority check response contains a duplicate tool identifier."});
-        }
-        if (tool.status != ToolAvailabilityStatus::NotFound &&
-            !tool.remainLifeTime.has_value()) {
-            return Result<void>::Failure(
-                {ErrorCode::InvalidResponse,
-                 "Queue-priority check response omits remaining life for a known tool."});
-        }
-    }
-    return Result<void>::Success();
 }
 
 }  // namespace
@@ -74,26 +56,13 @@ Result<QueuePriorityAdjustmentOutcome> QueuePriorityAdjustmentPolicy::Plan(
         }
     }
 
-    // SAFETY: 外部応答は件数・ID・工具結果をすべて検証してから利用する。
-    // 欠落や追加を部分成功として扱わず、順位変更計画を生成しない。
-    if (response.workpieces.size() != request.workpieces.size()) {
-        return Failure<QueuePriorityAdjustmentOutcome>(
-            ErrorCode::InvalidResponse,
-            "Queue-priority check response does not contain every requested workpiece.");
-    }
-
-    std::set<std::uint64_t> responseIds;
-    for (const auto& result : response.workpieces) {
-        if (!responseIds.insert(result.workpieceId.Value()).second) {
-            return Failure<QueuePriorityAdjustmentOutcome>(
-                ErrorCode::InvalidResponse,
-                "Queue-priority check response contains a duplicate workpiece ID.");
-        }
-        const auto toolsValid = ValidateToolResults(result);
-        if (!toolsValid.HasValue()) {
-            return Result<QueuePriorityAdjustmentOutcome>::Failure(
-                toolsValid.ErrorValue());
-        }
+    // SAFETY: 外部応答はWorkpiece・工具集合・合計使用時間をすべて検証してから
+    // 順位調整へ使用し、欠落や追加を部分成功として扱わない。
+    const auto contract = QueuePriorityCheckContractValidator::Validate(
+        request, response);
+    if (!contract.HasValue()) {
+        return Result<QueuePriorityAdjustmentOutcome>::Failure(
+            contract.ErrorValue());
     }
 
     // WHY: requestの元順で二群へ追加することで、Executable群と
@@ -109,11 +78,6 @@ Result<QueuePriorityAdjustmentOutcome> QueuePriorityAdjustmentPolicy::Plan(
             return Failure<QueuePriorityAdjustmentOutcome>(
                 ErrorCode::InvalidResponse,
                 "Queue-priority check response is missing a requested workpiece.");
-        }
-        if (checked->queuePriority != requested.queuePriority) {
-            return Failure<QueuePriorityAdjustmentOutcome>(
-                ErrorCode::InvalidResponse,
-                "Queue-priority check response changed the input queue priority.");
         }
 
         if (checked->executability == WorkpieceExecutability::Executable) {
