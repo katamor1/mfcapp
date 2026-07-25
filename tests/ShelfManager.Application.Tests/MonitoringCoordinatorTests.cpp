@@ -1,12 +1,15 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <memory>
 #include <optional>
 #include <thread>
+#include <utility>
 #include <vector>
 
+#include "ShelfManager/Application/MachineModelSession.h"
 #include "ShelfManager/Application/MonitoringCoordinator.h"
 #include "ShelfManager/Application/MonitoringWorker.h"
 #include "ShelfManager/Infrastructure/Fake/ManualClock.h"
@@ -37,6 +40,46 @@ private:
     std::atomic<std::uint32_t> count_{0U};
     std::atomic<std::uint64_t> lastVersion_{0U};
     std::atomic<std::uint32_t> lastFlags_{0U};
+};
+
+class RecordingMachineModelSink final
+    : public IMachineModelStateNotificationSink {
+public:
+    void OnMachineModelStateChanged() override {
+        count_.fetch_add(1U, std::memory_order_acq_rel);
+    }
+
+    [[nodiscard]] std::uint32_t Count() const noexcept {
+        return count_.load(std::memory_order_acquire);
+    }
+
+private:
+    std::atomic<std::uint32_t> count_{0U};
+};
+
+class SequencedMachineModelProvider final : public IMachineModelProvider {
+public:
+    explicit SequencedMachineModelProvider(
+        std::vector<Result<MachineModel>> results)
+        : results_(std::move(results)) {}
+
+    Result<MachineModel> CurrentMachineModel() override {
+        ++callCount_;
+        if (results_.empty()) {
+            return Result<MachineModel>::Failure(
+                {ErrorCode::Unavailable, "machine model unavailable"});
+        }
+        const auto index = (std::min)(callCount_ - 1U, results_.size() - 1U);
+        return results_[index];
+    }
+
+    [[nodiscard]] std::size_t CallCount() const noexcept {
+        return callCount_;
+    }
+
+private:
+    std::vector<Result<MachineModel>> results_;
+    std::size_t callCount_{0U};
 };
 
 class FixedReader final : public IMachineStateReader {
@@ -112,7 +155,35 @@ struct CoordinatorFixture final {
         clock, reader, plan, assembler, store, sink};
 };
 
-TEST(MonitoringCoordinatorTests, PublishesInitialSnapshotAndSuppressesIdenticalReads) {
+struct ModelCoordinatorFixture final {
+    explicit ModelCoordinatorFixture(
+        std::vector<Result<MachineModel>> results)
+        : provider(std::move(results)),
+          coordinator(
+              clock,
+              reader,
+              plan,
+              assembler,
+              store,
+              snapshotSink,
+              provider,
+              session,
+              modelSink) {}
+
+    ManualClock clock;
+    FixedReader reader{clock};
+    MonitoringPlanBuilder plan{clock.Now()};
+    MachineSnapshotAssembler assembler;
+    MachineSnapshotStore store;
+    RecordingSink snapshotSink;
+    SequencedMachineModelProvider provider;
+    MachineModelSession session;
+    RecordingMachineModelSink modelSink;
+    MonitoringCoordinator coordinator;
+};
+
+TEST(MonitoringCoordinatorTests,
+     PublishesInitialSnapshotAndSuppressesIdenticalReads) {
     CoordinatorFixture fixture;
 
     ASSERT_TRUE(fixture.coordinator.Tick().HasValue());
@@ -127,7 +198,8 @@ TEST(MonitoringCoordinatorTests, PublishesInitialSnapshotAndSuppressesIdenticalR
     EXPECT_EQ(1U, fixture.store.Current()->version.Value());
 }
 
-TEST(MonitoringCoordinatorTests, FailurePublishesStaleAndRecoveryPublishesFresh) {
+TEST(MonitoringCoordinatorTests,
+     FailurePublishesStaleAndRecoveryPublishesFresh) {
     CoordinatorFixture fixture;
     ASSERT_TRUE(fixture.coordinator.Tick().HasValue());
 
@@ -144,6 +216,65 @@ TEST(MonitoringCoordinatorTests, FailurePublishesStaleAndRecoveryPublishesFresh)
     ASSERT_EQ(3U, fixture.sink.Count());
     EXPECT_EQ(DataFreshnessState::Fresh,
               fixture.store.Current()->freshness.state);
+}
+
+TEST(MonitoringCoordinatorTests,
+     ObservesMachineModelOnlyForStandardRequests) {
+    ModelCoordinatorFixture fixture({
+        Result<MachineModel>::Success(MachineModel::ProvisionalModel1)});
+
+    ASSERT_TRUE(fixture.coordinator.Tick().HasValue());
+    EXPECT_EQ(1U, fixture.provider.CallCount());
+    EXPECT_EQ(1U, fixture.modelSink.Count());
+    EXPECT_EQ(MachineModelSessionState::Resolved,
+              fixture.session.CurrentState().state);
+
+    fixture.clock.Advance(20ms);
+    ASSERT_TRUE(fixture.coordinator.Tick().HasValue());
+    EXPECT_EQ(1U, fixture.provider.CallCount());
+
+    fixture.clock.Advance(50ms);
+    ASSERT_TRUE(fixture.coordinator.Tick().HasValue());
+    EXPECT_EQ(2U, fixture.provider.CallCount());
+    EXPECT_EQ(1U, fixture.modelSink.Count());
+}
+
+TEST(MonitoringCoordinatorTests,
+     MachineModelFailureDoesNotBlockSnapshotAndLaterSuccessResolves) {
+    ModelCoordinatorFixture fixture({
+        Result<MachineModel>::Failure(
+            {ErrorCode::Timeout, "machine model timeout"}),
+        Result<MachineModel>::Success(MachineModel::ProvisionalModel2)});
+
+    ASSERT_TRUE(fixture.coordinator.Tick().HasValue());
+    ASSERT_NE(nullptr, fixture.store.Current());
+    EXPECT_EQ(MachineModelSessionState::Unresolved,
+              fixture.session.CurrentState().state);
+    EXPECT_EQ(1U, fixture.modelSink.Count());
+
+    fixture.clock.Advance(70ms);
+    ASSERT_TRUE(fixture.coordinator.Tick().HasValue());
+    EXPECT_EQ(MachineModelSessionState::Resolved,
+              fixture.session.CurrentState().state);
+    ASSERT_TRUE(fixture.session.RequireProfile().HasValue());
+    EXPECT_EQ(MachineModel::ProvisionalModel2,
+              fixture.session.RequireProfile().Value().model);
+    EXPECT_EQ(2U, fixture.modelSink.Count());
+}
+
+TEST(MonitoringCoordinatorTests,
+     DifferentObservedModelLatchesAndNotifies) {
+    ModelCoordinatorFixture fixture({
+        Result<MachineModel>::Success(MachineModel::ProvisionalModel1),
+        Result<MachineModel>::Success(MachineModel::ProvisionalModel3)});
+
+    ASSERT_TRUE(fixture.coordinator.Tick().HasValue());
+    fixture.clock.Advance(70ms);
+    ASSERT_TRUE(fixture.coordinator.Tick().HasValue());
+
+    EXPECT_EQ(MachineModelSessionState::MismatchLatched,
+              fixture.session.CurrentState().state);
+    EXPECT_EQ(2U, fixture.modelSink.Count());
 }
 
 TEST(MonitoringWorkerTests, StartAndStopAreIdempotent) {
