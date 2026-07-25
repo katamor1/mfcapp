@@ -171,7 +171,14 @@ Result<void> ValidateAndSortRequest(
 
             std::set<std::uint64_t> toolIds;
             for (const auto& tool : instruction.tools) {
-                if (!toolIds.insert(tool.toolId).second) {
+                const auto* toolId = std::get_if<ToolIdIdentifier>(
+                    &tool.identifier);
+                if (toolId == nullptr) {
+                    return Result<void>::Failure(
+                        {ErrorCode::UnsupportedData,
+                         "Legacy Toolid JSON path requires ToolIdIdentifier."});
+                }
+                if (!toolIds.insert(toolId->value).second) {
                     return Result<void>::Failure(
                         {ErrorCode::InvalidArgument,
                          "Queue-priority request contains a duplicate tool ID in one instruction."});
@@ -199,10 +206,12 @@ Result<std::string> QueuePriorityCheckJsonCodec::Serialize(
             for (const auto& instruction : workpiece.instructions) {
                 Json toolArray = Json::array();
                 for (const auto& tool : instruction.tools) {
+                    const auto& toolId = std::get<ToolIdIdentifier>(
+                        tool.identifier);
                     // SOURCE: 外部契約のフィールド名はToolidである。
                     // ToolIdへ正規化すると契約が変わるため原表記を維持する。
                     toolArray.push_back(Json{
-                        {"Toolid", tool.toolId},
+                        {"Toolid", toolId.value},
                         {"UsageTime", tool.usageTime}});
                 }
 
@@ -348,7 +357,7 @@ Result<QueuePriorityCheckResponse> QueuePriorityCheckJsonCodec::Parse(
                 }
 
                 tools.push_back(ToolAvailabilityResult{
-                    toolId.Value(),
+                    ToolIdIdentifier{toolId.Value()},
                     totalUsage.Value(),
                     remainLife,
                     status.Value()});
