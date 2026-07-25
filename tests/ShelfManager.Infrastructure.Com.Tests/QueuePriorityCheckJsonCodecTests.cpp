@@ -26,18 +26,18 @@ TEST(QueuePriorityCheckJsonCodecTests, SerializesExactExternalFieldNamesAndQueue
             {MachiningInstructionToolUsage{
                  MachiningInstructionName("step2"),
                  Order(2U),
-                 {ToolUsageRequirement{103U, 180U}}},
+                 {ToolUsageRequirement{ToolIdIdentifier{103U}, 180U}}},
              MachiningInstructionToolUsage{
                  MachiningInstructionName("step1"),
                  Order(1U),
-                 {ToolUsageRequirement{1U, 12U}}}}},
+                 {ToolUsageRequirement{ToolIdIdentifier{1U}, 12U}}}}},
         QueuePriorityCheckWorkpiece{
             WorkpieceId(1U),
             Queue(1U),
             {MachiningInstructionToolUsage{
                 MachiningInstructionName("first"),
                 Order(1U),
-                {ToolUsageRequirement{11U, 99U}}}}}}};
+                {ToolUsageRequirement{ToolIdIdentifier{11U}, 99U}}}}}}};
 
     const auto encoded = QueuePriorityCheckJsonCodec::Serialize(request);
 
@@ -97,6 +97,9 @@ TEST(QueuePriorityCheckJsonCodecTests, ParsesProvidedOutputShape) {
     EXPECT_EQ(ToolAvailabilityStatus::NotFound,
               decoded.Value().workpieces[1].tools[1].status);
     EXPECT_FALSE(decoded.Value().workpieces[1].tools[1].remainLifeTime.has_value());
+    EXPECT_EQ(
+        ToolIdentifier{ToolIdIdentifier{111U}},
+        decoded.Value().workpieces[1].tools[1].identifier);
 }
 
 TEST(QueuePriorityCheckJsonCodecTests, RejectsUnknownExecutableAndToolStatus) {
@@ -157,6 +160,22 @@ TEST(QueuePriorityCheckJsonCodecTests, RejectsMalformedJsonAndInvalidNumericType
     ASSERT_FALSE(invalidNumber.HasValue());
     EXPECT_EQ(ErrorCode::InvalidResponse, malformed.ErrorValue().code);
     EXPECT_EQ(ErrorCode::InvalidResponse, invalidNumber.ErrorValue().code);
+}
+
+TEST(QueuePriorityCheckJsonCodecTests, LegacyPathRejectsNonIdIdentifier) {
+    const auto name = ToolNameIdentifier::Create("DRILL_D10").Value();
+    const QueuePriorityCheckRequest request{{QueuePriorityCheckWorkpiece{
+        WorkpieceId(1U),
+        Queue(1U),
+        {MachiningInstructionToolUsage{
+            MachiningInstructionName("step1"),
+            Order(1U),
+            {ToolUsageRequirement{ToolIdentifier{name}, 12U}}}}}}};
+
+    const auto encoded = QueuePriorityCheckJsonCodec::Serialize(request);
+
+    ASSERT_FALSE(encoded.HasValue());
+    EXPECT_EQ(ErrorCode::UnsupportedData, encoded.ErrorValue().code);
 }
 
 }  // namespace
