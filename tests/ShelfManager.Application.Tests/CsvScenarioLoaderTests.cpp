@@ -63,11 +63,24 @@ std::string CompleteCsv() {
 0,20,2,0,1
 0,21,2,0,0
 0,22,2,0,available
+0,24,0,0,provisional-model-1
 1000,10,1,0,machining
 1000,11,1,0,1
 1000,12,1,0,0
 1000,14,1,0,machining
 )csv";
+}
+
+std::string ReplaceFirst(
+    std::string source,
+    const std::string& from,
+    const std::string& to) {
+    const auto position = source.find(from);
+    EXPECT_NE(std::string::npos, position);
+    if (position != std::string::npos) {
+        source.replace(position, from.size(), to);
+    }
+    return source;
 }
 
 TEST(CsvScenarioLoaderTests, ProvisionalDataIdsAreSequentialFromOne) {
@@ -94,7 +107,8 @@ TEST(CsvScenarioLoaderTests, ProvisionalDataIdsAreSequentialFromOne) {
         ProvisionalDataId::DestinationPrimary,
         ProvisionalDataId::DestinationSecondary,
         ProvisionalDataId::DestinationAvailability,
-        ProvisionalDataId::ManualTransportRequest};
+        ProvisionalDataId::ManualTransportRequest,
+        ProvisionalDataId::MachineModel};
 
     for (std::size_t index = 0U; index < ids.size(); ++index) {
         EXPECT_EQ(index + 1U, ToDataId(ids[index]));
@@ -107,6 +121,7 @@ TEST(CsvScenarioLoaderTests, LoadsFramesAndCarriesForwardUnchangedResponses) {
     const auto scenario = CsvScenarioLoader::Parse(input);
 
     ASSERT_TRUE(scenario.HasValue()) << scenario.ErrorValue().message;
+    EXPECT_EQ(MachineModel::ProvisionalModel1, scenario.Value().Model());
     const auto& initialFrame = scenario.Value().FrameAt(0ms);
     const auto& initial = initialFrame.snapshot;
     const auto& machining = scenario.Value().FrameAt(1000ms).snapshot;
@@ -137,6 +152,68 @@ TEST(CsvScenarioLoaderTests, LoadsFramesAndCarriesForwardUnchangedResponses) {
     EXPECT_EQ(TimePoint(1000ms), machining.freshness.lastSuccessfulRead);
 }
 
+TEST(CsvScenarioLoaderTests, AllowsSameMachineModelAtLaterTimestamp) {
+    std::istringstream input(
+        CompleteCsv() + "1000,24,0,0,provisional-model-1\n");
+
+    const auto scenario = CsvScenarioLoader::Parse(input);
+
+    ASSERT_TRUE(scenario.HasValue()) << scenario.ErrorValue().message;
+    EXPECT_EQ(MachineModel::ProvisionalModel1, scenario.Value().Model());
+}
+
+TEST(CsvScenarioLoaderTests, RejectsMachineModelChange) {
+    std::istringstream input(
+        CompleteCsv() + "1000,24,0,0,provisional-model-2\n");
+
+    const auto scenario = CsvScenarioLoader::Parse(input);
+
+    ASSERT_FALSE(scenario.HasValue());
+    EXPECT_EQ(ErrorCode::InvalidArgument, scenario.ErrorValue().code);
+}
+
+TEST(CsvScenarioLoaderTests, RejectsMissingMachineModel) {
+    std::istringstream input(ReplaceFirst(
+        CompleteCsv(), "0,24,0,0,provisional-model-1\n", ""));
+
+    const auto scenario = CsvScenarioLoader::Parse(input);
+
+    ASSERT_FALSE(scenario.HasValue());
+    EXPECT_EQ(ErrorCode::InvalidArgument, scenario.ErrorValue().code);
+}
+
+TEST(CsvScenarioLoaderTests, RejectsUnknownOrNormalizedMachineModelCodes) {
+    for (const auto* value : {
+             "unknown-model",
+             "Provisional-model-1",
+             " provisional-model-1",
+             "provisional-model-1 "}) {
+        const auto csv = ReplaceFirst(
+            CompleteCsv(),
+            "0,24,0,0,provisional-model-1",
+            std::string("0,24,0,0,") + value);
+        std::istringstream input(csv);
+
+        const auto scenario = CsvScenarioLoader::Parse(input);
+
+        ASSERT_FALSE(scenario.HasValue()) << value;
+        EXPECT_EQ(ErrorCode::InvalidResponse, scenario.ErrorValue().code)
+            << value;
+    }
+}
+
+TEST(CsvScenarioLoaderTests, RejectsMachineModelSubIds) {
+    std::istringstream input(ReplaceFirst(
+        CompleteCsv(),
+        "0,24,0,0,provisional-model-1",
+        "0,24,1,0,provisional-model-1"));
+
+    const auto scenario = CsvScenarioLoader::Parse(input);
+
+    ASSERT_FALSE(scenario.HasValue());
+    EXPECT_EQ(ErrorCode::InvalidArgument, scenario.ErrorValue().code);
+}
+
 TEST(CsvScenarioLoaderTests, RejectsDuplicateAddressAtTheSameTimestamp) {
     std::istringstream input(
         CompleteCsv() + "0,1,0,0,disconnected\n");
@@ -150,7 +227,8 @@ TEST(CsvScenarioLoaderTests, RejectsDuplicateAddressAtTheSameTimestamp) {
 TEST(CsvScenarioLoaderTests, RejectsMissingRequiredResponses) {
     std::istringstream input(
         "at_ms,data_id,sub_id1,sub_id2,value\n"
-        "0,1,0,0,connected\n");
+        "0,1,0,0,connected\n"
+        "0,24,0,0,provisional-model-1\n");
 
     const auto scenario = CsvScenarioLoader::Parse(input);
 
