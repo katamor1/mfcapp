@@ -8,11 +8,62 @@
 #include <vector>
 
 #include "ShelfManager/Application/CheckAndAdjustQueuePriorityUseCase.h"
+#include "ShelfManager/Application/MachineModelSession.h"
 
 namespace ShelfManager::Application {
 namespace {
 
 using namespace ShelfManager::Domain;
+
+MachineModelProfile Profile() {
+    return MachineModelProfileRegistry::Resolve(
+        MachineModel::ProvisionalModel1).Value();
+}
+
+class FixedProfileSource final : public IMachineModelProfileSource {
+public:
+    Result<MachineModelProfile> RequireProfile() const override {
+        return Result<MachineModelProfile>::Success(Profile());
+    }
+
+    MachineModelSessionSnapshot CurrentState() const override {
+        return MachineModelSessionSnapshot{
+            MachineModelSessionState::Resolved,
+            Profile(),
+            std::nullopt};
+    }
+};
+
+class SequencedProfileSource final : public IMachineModelProfileSource {
+public:
+    Result<MachineModelProfile> RequireProfile() const override {
+        ++calls_;
+        if (calls_ == 1U) {
+            return Result<MachineModelProfile>::Success(Profile());
+        }
+        return Result<MachineModelProfile>::Failure(
+            {ErrorCode::Conflict, "machine model mismatch"});
+    }
+
+    MachineModelSessionSnapshot CurrentState() const override {
+        return MachineModelSessionSnapshot{
+            calls_ == 0U ? MachineModelSessionState::Resolved
+                         : MachineModelSessionState::MismatchLatched,
+            calls_ == 0U ? std::optional<MachineModelProfile>{Profile()}
+                         : std::nullopt,
+            calls_ == 0U
+                ? std::nullopt
+                : std::optional<Error>{
+                      Error{ErrorCode::Conflict, "machine model mismatch"}}};
+    }
+
+    [[nodiscard]] std::size_t CallCount() const noexcept {
+        return calls_;
+    }
+
+private:
+    mutable std::size_t calls_{0U};
+};
 
 QueuePriority Priority(const std::uint32_t value) {
     return QueuePriority::Create(value).Value();
@@ -143,7 +194,8 @@ private:
     std::vector<WorkpieceSummary> workpieces_;
 };
 
-TEST(CheckAndAdjustQueuePriorityUseCaseTests, MovesNgToBottomAndVerifiesReadback) {
+TEST(CheckAndAdjustQueuePriorityUseCaseTests,
+     MovesNgToBottomAndVerifiesReadback) {
     MachineSnapshotStore store;
     ASSERT_TRUE(store.Publish(Snapshot(
         1U, {Workpiece(1U, 1U), Workpiece(2U, 2U)})).HasValue());
@@ -153,8 +205,9 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, MovesNgToBottomAndVerifiesReadback
                  WorkpieceExecutability::Executable));
     RecordingCommandGateway commandGateway;
     FixedStateReader reader({Workpiece(2U, 1U), Workpiece(1U, 2U)});
+    FixedProfileSource profileSource;
     CheckAndAdjustQueuePriorityUseCase useCase(
-        store, checkGateway, commandGateway, reader);
+        store, checkGateway, commandGateway, reader, profileSource);
 
     const auto outcome = useCase.Execute(
         QueuePriorityCheckTrigger::BeforeMachiningTransport,
@@ -171,7 +224,8 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, MovesNgToBottomAndVerifiesReadback
     ASSERT_EQ(2U, commandGateway.lastPlan.assignments.size());
 }
 
-TEST(CheckAndAdjustQueuePriorityUseCaseTests, ApiFailureDoesNotWritePriority) {
+TEST(CheckAndAdjustQueuePriorityUseCaseTests,
+     ApiFailureDoesNotWritePriority) {
     MachineSnapshotStore store;
     ASSERT_TRUE(store.Publish(Snapshot(
         1U, {Workpiece(1U, 1U), Workpiece(2U, 2U)})).HasValue());
@@ -180,8 +234,9 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, ApiFailureDoesNotWritePriority) {
         {ErrorCode::Unavailable, "queue check unavailable"});
     RecordingCommandGateway commandGateway;
     FixedStateReader reader({Workpiece(1U, 1U), Workpiece(2U, 2U)});
+    FixedProfileSource profileSource;
     CheckAndAdjustQueuePriorityUseCase useCase(
-        store, checkGateway, commandGateway, reader);
+        store, checkGateway, commandGateway, reader, profileSource);
 
     const auto outcome = useCase.Execute(
         QueuePriorityCheckTrigger::AutomaticOperationStart,
@@ -196,7 +251,8 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, ApiFailureDoesNotWritePriority) {
     EXPECT_EQ(0, reader.callCount);
 }
 
-TEST(CheckAndAdjustQueuePriorityUseCaseTests, SnapshotChangeDuringApiCallIsConflict) {
+TEST(CheckAndAdjustQueuePriorityUseCaseTests,
+     SnapshotChangeDuringApiCallIsConflict) {
     MachineSnapshotStore store;
     ASSERT_TRUE(store.Publish(Snapshot(
         1U, {Workpiece(1U, 1U), Workpiece(2U, 2U)})).HasValue());
@@ -210,8 +266,9 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, SnapshotChangeDuringApiCallIsConfl
     };
     RecordingCommandGateway commandGateway;
     FixedStateReader reader({Workpiece(2U, 1U), Workpiece(1U, 2U)});
+    FixedProfileSource profileSource;
     CheckAndAdjustQueuePriorityUseCase useCase(
-        store, checkGateway, commandGateway, reader);
+        store, checkGateway, commandGateway, reader, profileSource);
 
     const auto outcome = useCase.Execute(
         QueuePriorityCheckTrigger::BeforeMachiningTransport,
@@ -225,7 +282,8 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, SnapshotChangeDuringApiCallIsConfl
     EXPECT_EQ(0, commandGateway.priorityCallCount);
 }
 
-TEST(CheckAndAdjustQueuePriorityUseCaseTests, AllNgReturnsNoCandidateWithoutWrite) {
+TEST(CheckAndAdjustQueuePriorityUseCaseTests,
+     AllNgReturnsNoCandidateWithoutWrite) {
     MachineSnapshotStore store;
     ASSERT_TRUE(store.Publish(Snapshot(
         1U, {Workpiece(1U, 1U), Workpiece(2U, 2U)})).HasValue());
@@ -235,8 +293,9 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, AllNgReturnsNoCandidateWithoutWrit
                  WorkpieceExecutability::NotExecutable));
     RecordingCommandGateway commandGateway;
     FixedStateReader reader({Workpiece(1U, 1U), Workpiece(2U, 2U)});
+    FixedProfileSource profileSource;
     CheckAndAdjustQueuePriorityUseCase useCase(
-        store, checkGateway, commandGateway, reader);
+        store, checkGateway, commandGateway, reader, profileSource);
 
     const auto outcome = useCase.Execute(
         QueuePriorityCheckTrigger::BeforeMachiningTransport,
@@ -262,8 +321,9 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, ReadbackMismatchIsFailure) {
                  WorkpieceExecutability::Executable));
     RecordingCommandGateway commandGateway;
     FixedStateReader reader({Workpiece(1U, 1U), Workpiece(2U, 2U)});
+    FixedProfileSource profileSource;
     CheckAndAdjustQueuePriorityUseCase useCase(
-        store, checkGateway, commandGateway, reader);
+        store, checkGateway, commandGateway, reader, profileSource);
 
     const auto outcome = useCase.Execute(
         QueuePriorityCheckTrigger::AutomaticOperationStart,
@@ -278,7 +338,8 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, ReadbackMismatchIsFailure) {
     EXPECT_EQ(1, reader.callCount);
 }
 
-TEST(CheckAndAdjustQueuePriorityUseCaseTests, StaleSnapshotFailsBeforeCallingApi) {
+TEST(CheckAndAdjustQueuePriorityUseCaseTests,
+     StaleSnapshotFailsBeforeCallingApi) {
     MachineSnapshotStore store;
     ASSERT_TRUE(store.Publish(Snapshot(
         1U,
@@ -287,8 +348,9 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, StaleSnapshotFailsBeforeCallingApi
     StubQueuePriorityCheckGateway checkGateway;
     RecordingCommandGateway commandGateway;
     FixedStateReader reader({Workpiece(1U, 1U), Workpiece(2U, 2U)});
+    FixedProfileSource profileSource;
     CheckAndAdjustQueuePriorityUseCase useCase(
-        store, checkGateway, commandGateway, reader);
+        store, checkGateway, commandGateway, reader, profileSource);
 
     const auto outcome = useCase.Execute(
         QueuePriorityCheckTrigger::AutomaticOperationStart,
@@ -301,6 +363,56 @@ TEST(CheckAndAdjustQueuePriorityUseCaseTests, StaleSnapshotFailsBeforeCallingApi
     EXPECT_EQ(ErrorCode::Unavailable, outcome.ErrorValue().code);
     EXPECT_EQ(0, checkGateway.callCount);
     EXPECT_EQ(0, commandGateway.priorityCallCount);
+}
+
+TEST(CheckAndAdjustQueuePriorityUseCaseTests,
+     UnresolvedMachineModelDoesNotCallGateways) {
+    MachineSnapshotStore store;
+    StubQueuePriorityCheckGateway checkGateway;
+    RecordingCommandGateway commandGateway;
+    FixedStateReader reader({});
+    MachineModelSession session;
+    CheckAndAdjustQueuePriorityUseCase useCase(
+        store, checkGateway, commandGateway, reader, session);
+
+    const auto outcome = useCase.Execute(
+        QueuePriorityCheckTrigger::AutomaticOperationStart,
+        SnapshotVersion(1U),
+        Request());
+
+    ASSERT_FALSE(outcome.HasValue());
+    EXPECT_EQ(ErrorCode::UnsupportedData, outcome.ErrorValue().code);
+    EXPECT_EQ(0, checkGateway.callCount);
+    EXPECT_EQ(0, commandGateway.priorityCallCount);
+    EXPECT_EQ(0, reader.callCount);
+}
+
+TEST(CheckAndAdjustQueuePriorityUseCaseTests,
+     MismatchBeforePriorityWriteDoesNotCallCommandGateway) {
+    MachineSnapshotStore store;
+    ASSERT_TRUE(store.Publish(Snapshot(
+        1U, {Workpiece(1U, 1U), Workpiece(2U, 2U)})).HasValue());
+    StubQueuePriorityCheckGateway checkGateway;
+    checkGateway.result = Result<QueuePriorityCheckResponse>::Success(
+        Response(WorkpieceExecutability::NotExecutable,
+                 WorkpieceExecutability::Executable));
+    RecordingCommandGateway commandGateway;
+    FixedStateReader reader({Workpiece(2U, 1U), Workpiece(1U, 2U)});
+    SequencedProfileSource profileSource;
+    CheckAndAdjustQueuePriorityUseCase useCase(
+        store, checkGateway, commandGateway, reader, profileSource);
+
+    const auto outcome = useCase.Execute(
+        QueuePriorityCheckTrigger::BeforeMachiningTransport,
+        SnapshotVersion(1U),
+        Request());
+
+    ASSERT_FALSE(outcome.HasValue());
+    EXPECT_EQ(ErrorCode::Conflict, outcome.ErrorValue().code);
+    EXPECT_EQ(1, checkGateway.callCount);
+    EXPECT_EQ(0, commandGateway.priorityCallCount);
+    EXPECT_EQ(0, reader.callCount);
+    EXPECT_EQ(2U, profileSource.CallCount());
 }
 
 }  // namespace
