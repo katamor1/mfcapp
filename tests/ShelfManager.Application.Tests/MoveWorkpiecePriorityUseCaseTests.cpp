@@ -22,8 +22,6 @@ MachineModelProfile Profile() {
         MachineModel::ProvisionalModel1).Value();
 }
 
-MachineModelSession ResolvedSession() = delete;
-
 class SequencedProfileSource final : public IMachineModelProfileSource {
 public:
     Result<MachineModelProfile> RequireProfile() const override {
