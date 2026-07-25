@@ -9,11 +9,13 @@ MoveWorkpiecePriorityUseCase::MoveWorkpiecePriorityUseCase(
     MachineSnapshotStore& snapshotStore,
     IMachineCommandGateway& commandGateway,
     IMachineStateReader& stateReader,
-    OperationStateStore& operationStateStore)
+    OperationStateStore& operationStateStore,
+    const IMachineModelProfileSource& profileSource)
     : snapshotStore_(snapshotStore),
       commandGateway_(commandGateway),
       stateReader_(stateReader),
-      operationStateStore_(operationStateStore) {}
+      operationStateStore_(operationStateStore),
+      profileSource_(profileSource) {}
 
 ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
     const OperationId operationId,
@@ -21,6 +23,13 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
     const ShelfManager::Domain::WorkpieceId workpieceId,
     const ShelfManager::Domain::MoveDirection direction) {
     using namespace ShelfManager::Domain;
+
+    // SAFETY: 機種未確定または不一致時は、Snapshotや操作状態を参照する前に
+    // 終了し、順位変更Gatewayへ到達しない。
+    const auto profile = profileSource_.RequireProfile();
+    if (!profile.HasValue()) {
+        return Result<void>::Failure(profile.ErrorValue());
+    }
 
     const auto snapshot = snapshotStore_.Current();
     if (!snapshot) {
@@ -58,6 +67,13 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
     }
     if (!plan.Value().changed) {
         return Result<void>::Success();
+    }
+
+    // SAFETY: 操作Queue投入後や計画生成中に機種不一致がラッチされた場合、
+    // 外部書込み直前の再確認で停止する。
+    const auto profileBeforeWrite = profileSource_.RequireProfile();
+    if (!profileBeforeWrite.HasValue()) {
+        return Result<void>::Failure(profileBeforeWrite.ErrorValue());
     }
 
     const auto receipt = commandGateway_.ApplyPriorityChange(plan.Value());
