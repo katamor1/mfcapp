@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <utility>
 #include <vector>
 
 #include "ShelfManager/Application/QueuePriorityCheckRequestFactory.h"
@@ -18,6 +19,13 @@ public:
 
     Result<MachineModelProfile> RequireProfile() const override {
         return Result<MachineModelProfile>::Success(profile_);
+    }
+
+    MachineModelSessionSnapshot CurrentState() const override {
+        return MachineModelSessionSnapshot{
+            MachineModelSessionState::Resolved,
+            profile_,
+            std::nullopt};
     }
 
 private:
@@ -134,6 +142,10 @@ TEST(QueuePriorityCheckRequestFactoryTests, PropagatesUnresolvedProfile) {
         Result<MachineModelProfile> RequireProfile() const override {
             return Result<MachineModelProfile>::Failure(
                 {ErrorCode::UnsupportedData, "machine model unresolved"});
+        }
+
+        MachineModelSessionSnapshot CurrentState() const override {
+            return MachineModelSessionSnapshot{};
         }
     } source;
     QueuePriorityCheckRequestFactory factory(source);
