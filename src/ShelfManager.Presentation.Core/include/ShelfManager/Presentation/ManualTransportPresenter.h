@@ -47,8 +47,8 @@ public:
     void SelectWorkpiece(ShelfManager::Domain::WorkpieceId workpieceId);
     void SelectDestination(std::size_t destinationIndex);
 
-    // 最新ViewModelで送信可能な場合だけ、非同期の手動搬送操作を一件登録する。
-    // 認証と安全条件はWorker上のUse Caseでも送信直前に再確認する。
+    // Workpieceと搬送先が選択済みなら非同期操作登録を試みる。submitEnabledは
+    // ユーザー操作を抑止する表示状態であり、認証と安全条件はWorker上のUse Caseで再確認する。
     void Submit();
 
 private:
