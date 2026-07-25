@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <set>
 #include <string>
 #include <utility>
@@ -19,6 +20,19 @@ using namespace ShelfManager::Domain;
 template <class T>
 Result<T> Failure(const ErrorCode code, std::string message) {
     return Result<T>::Failure({code, std::move(message)});
+}
+
+Result<void> ValidateProfile(const MachineModelProfile& profile) {
+    const auto registered = MachineModelProfileRegistry::Resolve(profile.model);
+    if (!registered.HasValue()) {
+        return Result<void>::Failure(registered.ErrorValue());
+    }
+    if (registered.Value() != profile) {
+        return Result<void>::Failure(
+            {ErrorCode::UnsupportedData,
+             "Machine model profile does not match the registered JSON contract."});
+    }
+    return Result<void>::Success();
 }
 
 Result<std::uint64_t> ReadUnsigned(
@@ -70,7 +84,7 @@ Result<std::int64_t> ReadSigned(
             const auto unsignedValue = value.get<std::uint64_t>();
             if (unsignedValue <=
                 static_cast<std::uint64_t>(
-                    std::numeric_limits<std::int64_t>::max())) {
+                    (std::numeric_limits<std::int64_t>::max)())) {
                 return Result<std::int64_t>::Success(
                     static_cast<std::int64_t>(unsignedValue));
             }
@@ -91,7 +105,7 @@ Result<std::string> ReadString(
         return Failure<std::string>(
             ErrorCode::InvalidResponse,
             std::string("Queue-priority JSON field '") + name +
-            "' must be a string.");
+                "' must be a string.");
     }
     return Result<std::string>::Success(object.at(name).get<std::string>());
 }
@@ -128,9 +142,118 @@ Result<WorkpieceExecutability> ParseExecutability(const std::string& value) {
         "Queue-priority JSON contains an unknown Executable value.");
 }
 
+Result<Json> SerializeToolIdentifier(
+    const MachineModelProfile& profile,
+    const ToolIdentifier& identifier) {
+    const auto valid = ValidateToolIdentifierForProfile(profile, identifier);
+    if (!valid.HasValue()) {
+        return Result<Json>::Failure(valid.ErrorValue());
+    }
+
+    switch (profile.toolIdentifierFormat) {
+        case ToolIdentifierFormat::ToolId: {
+            const auto& value = std::get<ToolIdIdentifier>(identifier);
+            // SOURCE: 外部契約上の綴りはToolidである。
+            return Result<Json>::Success(Json{{"Toolid", value.value}});
+        }
+        case ToolIdentifierFormat::ToolName: {
+            const auto& value = std::get<ToolNameIdentifier>(identifier);
+            return Result<Json>::Success(Json{{"Toolname", value.Value()}});
+        }
+        case ToolIdentifierFormat::ToolGroupAndSerial: {
+            const auto& value = std::get<ToolGroupSerialIdentifier>(identifier);
+            return Result<Json>::Success(Json{
+                {"ToolGroup", value.Group()},
+                {"ToolSerial", value.Serial()}});
+        }
+    }
+
+    return Failure<Json>(
+        ErrorCode::UnsupportedData,
+        "Machine model profile contains an unsupported tool identifier format.");
+}
+
+Result<ToolIdentifier> ParseToolIdentifier(
+    const MachineModelProfile& profile,
+    const Json& object) {
+    const bool hasId = object.contains("Toolid");
+    const bool hasName = object.contains("Toolname");
+    const bool hasGroup = object.contains("ToolGroup");
+    const bool hasSerial = object.contains("ToolSerial");
+
+    switch (profile.toolIdentifierFormat) {
+        case ToolIdentifierFormat::ToolId: {
+            if (!hasId || hasName || hasGroup || hasSerial) {
+                return Failure<ToolIdentifier>(
+                    ErrorCode::InvalidResponse,
+                    "Tool ID profile requires only Toolid.");
+            }
+            const auto value = ReadUnsigned(object, "Toolid");
+            if (!value.HasValue()) {
+                return Result<ToolIdentifier>::Failure(value.ErrorValue());
+            }
+            return Result<ToolIdentifier>::Success(
+                ToolIdentifier{ToolIdIdentifier{value.Value()}});
+        }
+        case ToolIdentifierFormat::ToolName: {
+            if (hasId || !hasName || hasGroup || hasSerial) {
+                return Failure<ToolIdentifier>(
+                    ErrorCode::InvalidResponse,
+                    "Tool name profile requires only Toolname.");
+            }
+            const auto value = ReadString(object, "Toolname");
+            if (!value.HasValue()) {
+                return Result<ToolIdentifier>::Failure(value.ErrorValue());
+            }
+            const auto identifier = ToolNameIdentifier::Create(value.Value());
+            if (!identifier.HasValue()) {
+                return Failure<ToolIdentifier>(
+                    ErrorCode::InvalidResponse,
+                    identifier.ErrorValue().message);
+            }
+            return Result<ToolIdentifier>::Success(
+                ToolIdentifier{identifier.Value()});
+        }
+        case ToolIdentifierFormat::ToolGroupAndSerial: {
+            if (hasId || hasName || !hasGroup || !hasSerial) {
+                return Failure<ToolIdentifier>(
+                    ErrorCode::InvalidResponse,
+                    "Tool group/serial profile requires ToolGroup and ToolSerial only.");
+            }
+            const auto group = ReadString(object, "ToolGroup");
+            const auto serial = ReadString(object, "ToolSerial");
+            if (!group.HasValue()) {
+                return Result<ToolIdentifier>::Failure(group.ErrorValue());
+            }
+            if (!serial.HasValue()) {
+                return Result<ToolIdentifier>::Failure(serial.ErrorValue());
+            }
+            const auto identifier = ToolGroupSerialIdentifier::Create(
+                group.Value(), serial.Value());
+            if (!identifier.HasValue()) {
+                return Failure<ToolIdentifier>(
+                    ErrorCode::InvalidResponse,
+                    identifier.ErrorValue().message);
+            }
+            return Result<ToolIdentifier>::Success(
+                ToolIdentifier{identifier.Value()});
+        }
+    }
+
+    return Failure<ToolIdentifier>(
+        ErrorCode::InvalidResponse,
+        "Machine model profile contains an unsupported tool identifier format.");
+}
+
 Result<void> ValidateAndSortRequest(
+    const MachineModelProfile& profile,
     std::vector<QueuePriorityCheckWorkpiece>& workpieces) {
-    std::sort(
+    const auto profileValid = ValidateProfile(profile);
+    if (!profileValid.HasValue()) {
+        return profileValid;
+    }
+
+    std::stable_sort(
         workpieces.begin(),
         workpieces.end(),
         [](const QueuePriorityCheckWorkpiece& left,
@@ -140,28 +263,29 @@ Result<void> ValidateAndSortRequest(
 
     std::set<std::uint64_t> workpieceIds;
     for (std::size_t index = 0U; index < workpieces.size(); ++index) {
-        if (!workpieceIds.insert(workpieces[index].workpieceId.Value()).second) {
+        auto& workpiece = workpieces[index];
+        if (!workpieceIds.insert(workpiece.workpieceId.Value()).second) {
             return Result<void>::Failure(
                 {ErrorCode::InvalidArgument,
-                 "Queue-priority request contains a duplicate workpiece ID."});
+                 "Queue-priority request contains a duplicate WorkpieceId."});
         }
-        if (workpieces[index].queuePriority.Value() != index + 1U) {
+        if (workpiece.queuePriority.Value() != index + 1U) {
             return Result<void>::Failure(
                 {ErrorCode::InvalidArgument,
                  "Queue-priority request priorities must be contiguous from one."});
         }
 
-        auto& instructions = workpieces[index].instructions;
-        std::sort(
-            instructions.begin(),
-            instructions.end(),
+        std::stable_sort(
+            workpiece.instructions.begin(),
+            workpiece.instructions.end(),
             [](const MachiningInstructionToolUsage& left,
                const MachiningInstructionToolUsage& right) {
                 return left.instructionOrder < right.instructionOrder;
             });
 
         std::set<std::uint32_t> instructionOrders;
-        for (const auto& instruction : instructions) {
+        std::map<ToolIdentifier, std::uint64_t, ToolIdentifierLess> totals;
+        for (const auto& instruction : workpiece.instructions) {
             if (!instructionOrders.insert(
                     instruction.instructionOrder.Value()).second) {
                 return Result<void>::Failure(
@@ -169,20 +293,28 @@ Result<void> ValidateAndSortRequest(
                      "Queue-priority request contains a duplicate instruction order."});
             }
 
-            std::set<std::uint64_t> toolIds;
+            std::set<ToolIdentifier, ToolIdentifierLess> instructionTools;
             for (const auto& tool : instruction.tools) {
-                const auto* toolId = std::get_if<ToolIdIdentifier>(
-                    &tool.identifier);
-                if (toolId == nullptr) {
-                    return Result<void>::Failure(
-                        {ErrorCode::UnsupportedData,
-                         "Legacy Toolid JSON path requires ToolIdIdentifier."});
+                const auto identifierValid = ValidateToolIdentifierForProfile(
+                    profile, tool.identifier);
+                if (!identifierValid.HasValue()) {
+                    return identifierValid;
                 }
-                if (!toolIds.insert(toolId->value).second) {
+                if (!instructionTools.insert(tool.identifier).second) {
                     return Result<void>::Failure(
                         {ErrorCode::InvalidArgument,
-                         "Queue-priority request contains a duplicate tool ID in one instruction."});
+                         "Queue-priority request contains a duplicate tool in one instruction."});
                 }
+
+                auto& currentTotal = totals[tool.identifier];
+                if (currentTotal >
+                    (std::numeric_limits<std::uint64_t>::max)() -
+                        tool.usageTime) {
+                    return Result<void>::Failure(
+                        {ErrorCode::InvalidArgument,
+                         "Tool usage total exceeds uint64 range."});
+                }
+                currentTotal += tool.usageTime;
             }
         }
     }
@@ -192,9 +324,10 @@ Result<void> ValidateAndSortRequest(
 }  // namespace
 
 Result<std::string> QueuePriorityCheckJsonCodec::Serialize(
+    const MachineModelProfile& profile,
     const QueuePriorityCheckRequest& request) {
     auto workpieces = request.workpieces;
-    const auto valid = ValidateAndSortRequest(workpieces);
+    const auto valid = ValidateAndSortRequest(profile, workpieces);
     if (!valid.HasValue()) {
         return Result<std::string>::Failure(valid.ErrorValue());
     }
@@ -206,13 +339,15 @@ Result<std::string> QueuePriorityCheckJsonCodec::Serialize(
             for (const auto& instruction : workpiece.instructions) {
                 Json toolArray = Json::array();
                 for (const auto& tool : instruction.tools) {
-                    const auto& toolId = std::get<ToolIdIdentifier>(
-                        tool.identifier);
-                    // SOURCE: 外部契約のフィールド名はToolidである。
-                    // ToolIdへ正規化すると契約が変わるため原表記を維持する。
-                    toolArray.push_back(Json{
-                        {"Toolid", toolId.value},
-                        {"UsageTime", tool.usageTime}});
+                    const auto identifier = SerializeToolIdentifier(
+                        profile, tool.identifier);
+                    if (!identifier.HasValue()) {
+                        return Result<std::string>::Failure(
+                            identifier.ErrorValue());
+                    }
+                    auto toolJson = identifier.Value();
+                    toolJson["UsageTime"] = tool.usageTime;
+                    toolArray.push_back(std::move(toolJson));
                 }
 
                 instructionArray.push_back(Json{
@@ -239,7 +374,14 @@ Result<std::string> QueuePriorityCheckJsonCodec::Serialize(
 }
 
 Result<QueuePriorityCheckResponse> QueuePriorityCheckJsonCodec::Parse(
+    const MachineModelProfile& profile,
     const std::string_view jsonText) {
+    const auto profileValid = ValidateProfile(profile);
+    if (!profileValid.HasValue()) {
+        return Result<QueuePriorityCheckResponse>::Failure(
+            profileValid.ErrorValue());
+    }
+
     try {
         const auto document = Json::parse(jsonText.begin(), jsonText.end());
         if (!document.is_object() || !document.contains("Root") ||
@@ -253,8 +395,7 @@ Result<QueuePriorityCheckResponse> QueuePriorityCheckJsonCodec::Parse(
 
         std::vector<WorkpieceExecutabilityResult> workpieces;
         std::set<std::uint64_t> workpieceIds;
-        for (const auto& item :
-             document.at("Root").at("Workpieces")) {
+        for (const auto& item : document.at("Root").at("Workpieces")) {
             if (!item.is_object() || !item.contains("Tools") ||
                 !item.at("Tools").is_array()) {
                 return Failure<QueuePriorityCheckResponse>(
@@ -278,7 +419,7 @@ Result<QueuePriorityCheckResponse> QueuePriorityCheckJsonCodec::Parse(
                     executableText.ErrorValue());
             }
             if (priorityValue.Value() >
-                std::numeric_limits<std::uint32_t>::max()) {
+                (std::numeric_limits<std::uint32_t>::max)()) {
                 return Failure<QueuePriorityCheckResponse>(
                     ErrorCode::InvalidResponse,
                     "QueuePriority exceeds the supported range.");
@@ -304,7 +445,7 @@ Result<QueuePriorityCheckResponse> QueuePriorityCheckJsonCodec::Parse(
             }
 
             std::vector<ToolAvailabilityResult> tools;
-            std::set<std::uint64_t> toolIds;
+            std::set<ToolIdentifier, ToolIdentifierLess> identifiers;
             for (const auto& toolJson : item.at("Tools")) {
                 if (!toolJson.is_object()) {
                     return Failure<QueuePriorityCheckResponse>(
@@ -312,13 +453,13 @@ Result<QueuePriorityCheckResponse> QueuePriorityCheckJsonCodec::Parse(
                         "Queue-priority tool entry must be an object.");
                 }
 
-                const auto toolId = ReadUnsigned(toolJson, "Toolid");
+                const auto identifier = ParseToolIdentifier(profile, toolJson);
                 const auto totalUsage = ReadUnsigned(
                     toolJson, "TotalUsageTime");
                 const auto statusText = ReadString(toolJson, "Status");
-                if (!toolId.HasValue()) {
+                if (!identifier.HasValue()) {
                     return Result<QueuePriorityCheckResponse>::Failure(
-                        toolId.ErrorValue());
+                        identifier.ErrorValue());
                 }
                 if (!totalUsage.HasValue()) {
                     return Result<QueuePriorityCheckResponse>::Failure(
@@ -328,10 +469,10 @@ Result<QueuePriorityCheckResponse> QueuePriorityCheckJsonCodec::Parse(
                     return Result<QueuePriorityCheckResponse>::Failure(
                         statusText.ErrorValue());
                 }
-                if (!toolIds.insert(toolId.Value()).second) {
+                if (!identifiers.insert(identifier.Value()).second) {
                     return Failure<QueuePriorityCheckResponse>(
                         ErrorCode::InvalidResponse,
-                        "Queue-priority response contains a duplicate Toolid.");
+                        "Queue-priority response contains a duplicate tool identifier.");
                 }
 
                 const auto status = ParseToolStatus(statusText.Value());
@@ -357,7 +498,7 @@ Result<QueuePriorityCheckResponse> QueuePriorityCheckJsonCodec::Parse(
                 }
 
                 tools.push_back(ToolAvailabilityResult{
-                    ToolIdIdentifier{toolId.Value()},
+                    identifier.Value(),
                     totalUsage.Value(),
                     remainLife,
                     status.Value()});
