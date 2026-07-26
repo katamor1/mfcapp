@@ -69,7 +69,8 @@ struct RackOccupancy final {
 };
 
 // 棚の疎な占有状態。occupiedSlotsに存在しない有効RackSlotは空き位置を意味する。
-// vector順は棚座標順の保証ではなく、表示側は位置で照合する。重複slot、同一Workpieceの
+// vector順は棚座標順の保証ではない一方、operator==は順序も比較するため、Producerは
+// 不要な差分通知を避ける目的で決定論的な順序を使用する。重複slot、同一Workpieceの
 // 二重配置、Layout外座標、Workpiece一覧との不一致はProducer側で検証し、推測補正しない。
 struct RackState final {
     std::vector<RackOccupancy> occupiedSlots;
