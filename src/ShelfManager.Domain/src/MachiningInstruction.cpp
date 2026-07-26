@@ -28,8 +28,8 @@ Result<MachiningInstructionSequence> MachiningInstructionSequence::Create(
              "A workpiece may contain at most ten machining instructions."});
     }
 
-    // WHY: 入力配列順を正本にせず、型付きInstructionOrderで表示・実行順を固定する。
-    // vectorは値で受けているため、呼出し側が保持するContainerは並べ替えない。
+    // WHY: 入力配列順を正本にせず、型付きInstructionOrderで内部順序を固定する。
+    // 値引数として受け取ったvectorだけを並べ替え、外部Containerへの参照を保持しない。
     std::sort(
         instructions.begin(),
         instructions.end(),
