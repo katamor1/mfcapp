@@ -7,8 +7,8 @@
 namespace ShelfManager::Application {
 namespace {
 
-// SOURCE: 500ms未満の操作では待機表示を出さず、長時間操作だけを明示するMVP要件。
-// Storeは表示開始時刻を決めるだけで、Modal化や画面入力抑止は行わない。
+// SOURCE: docs/superpowers/specs/2026-07-23-shelf-manager-architecture-design.md NFR-04。
+// Storeは500ms境界だけを提供し、Modal化や画面入力抑止の方式は決定しない。
 constexpr auto kOverlayDelay = std::chrono::milliseconds(500);
 
 }  // namespace
