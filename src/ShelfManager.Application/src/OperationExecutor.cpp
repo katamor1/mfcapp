@@ -119,9 +119,10 @@ void OperationExecutor::Run() noexcept {
                  "Operation task raised an unknown exception."});
         }
 
-        // SAFETY: 完了通知より先にOperationStateStoreを更新し、UIがMessageを受信した
-        // 時点で結果の正本を参照できる順序にする。QueueItemはStart成功後に一度だけ
-        // single Workerへ渡されるため、完了更新の失敗は回復不能な内部不変条件違反である。
+        // SAFETY: 完了通知より先にOperationStateStoreの更新を試み、UIがMessageを
+        // 受信した時点で結果の正本を参照できる順序にする。通常はStart済みRecordを
+        // single Workerが一度だけ完了へ遷移させる。更新Resultはここで再試行・補正せず、
+        // 不変条件違反時もStoreの既存状態を保持したまま通知境界へ進む。
         if (outcome.HasValue()) {
             static_cast<void>(
                 stateStore_.CompleteSuccess(item.id, clock_.Now()));
@@ -132,11 +133,12 @@ void OperationExecutor::Run() noexcept {
                 clock_.Now()));
         }
 
+        // WHY: 完了通知はStore再取得のHintであり、配送成否でTask結果を変更しない。
         try {
             completionSink_.OnOperationCompleted(item.id);
         } catch (...) {
             // SAFETY: 通知失敗でnoexcept Workerを異常終了させない。
-            // OperationStateStoreには完了済みRecordが残り、Overlay Timerも解除できる。
+            // OperationStateStoreの既存Recordを保持し、後続TaskのFIFO実行を継続する。
         }
     }
 }
