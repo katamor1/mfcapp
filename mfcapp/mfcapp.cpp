@@ -119,8 +119,9 @@ BOOL CmfcappApp::InitInstance() {
 }
 
 int CmfcappApp::ExitInstance() {
-    // WHY: 通常終了はCMainFrame::OnCloseで先に停止するが、初期化後に別経路で
-    // ExitInstanceへ到達した場合にも、Window関連依存を残さない最後の停止境界とする。
+    // WHY: 正常終了ではCMainFrame::OnCloseがWindow破棄前に最初のStopを行う。
+    // ExitInstanceではその停止を冪等に再確認して所有物を解放するだけであり、
+    // Window破棄後に初めてStopしてよいという保証はしない。
     StopComposition();
     compositionRoot_.reset();
     return CWinApp::ExitInstance();
@@ -129,7 +130,7 @@ int CmfcappApp::ExitInstance() {
 void CmfcappApp::StopComposition() noexcept {
     if (compositionRoot_ != nullptr) {
         // THREAD: MFC LifecycleのUI threadから呼び、Stop中にStartやWindow破棄を競合させない。
-        // Stopは複数回呼べるため、OnCloseとExitInstanceの双方から安全に利用できる。
+        // 複数回呼べるが、最初の呼出しはCMainFrame::OnCloseからWindow破棄前に行う。
         compositionRoot_->Stop();
     }
 }
