@@ -66,6 +66,8 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
         return Result<void>::Failure(plan.ErrorValue());
     }
     if (!plan.Value().changed) {
+        // WHY: 先頭を上げる、または末尾を下げる操作は正常なno-opである。
+        // 外部書込みと読戻しを行わず、同じ順位を不要に再送しない。
         return Result<void>::Success();
     }
 
@@ -85,7 +87,8 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
             {ErrorCode::Rejected, "Machine rejected priority movement."});
     }
 
-    // SAFETY: 受付だけでは成功表示せず、変更した全Workpieceを一回のStandard読戻しで確認する。
+    // SAFETY: accepted後の読戻し失敗では、外部順位が既に変化した可能性がある。
+    // 同じexpectedVersionで自動再試行せず、次のSnapshotから判断し直す。
     const auto readback = stateReader_.Read(
         MonitoringRequest{MonitoringClass::Standard, std::nullopt});
     if (!readback.HasValue()) {
@@ -98,6 +101,8 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
              "Priority readback did not contain fresh workpiece data."});
     }
 
+    // SAFETY: 変更対象の一部だけが反映された状態を成功にせず、
+    // planに含まれる全assignmentの一致を要求する。
     for (const auto& assignment : plan.Value().assignments) {
         const auto workpiece = std::find_if(
             readback.Value().workpieces->begin(),
