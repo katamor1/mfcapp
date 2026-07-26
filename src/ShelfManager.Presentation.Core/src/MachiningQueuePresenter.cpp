@@ -14,6 +14,8 @@ using ShelfManager::Application::MachineModelSessionSnapshot;
 using ShelfManager::Application::MachineModelSessionState;
 
 std::wstring WidenFixtureText(const std::string& value) {
+    // SOURCE: 現在のCSV／Fake加工指示書名はASCII Fixtureである。
+    // 正式COM接続時の文字コード変換はAdapter境界へ集約する。
     return std::wstring(value.begin(), value.end());
 }
 
@@ -36,6 +38,8 @@ std::wstring StatusText(const WorkpieceStatus status) {
 }
 
 bool IsInteractive(const MachineSnapshot& snapshot) {
+    // WHY: 一覧と指示書の閲覧は最後のSnapshotで継続するが、順位変更Buttonは
+    // Connected／Fresh／機械Errorなしの場合だけ有効化する。
     return snapshot.health.connectionState ==
                MachineConnectionState::Connected &&
            snapshot.freshness.state == DataFreshnessState::Fresh &&
@@ -43,6 +47,8 @@ bool IsInteractive(const MachineSnapshot& snapshot) {
 }
 
 bool IsMachineModelSafe(const MachineModelSessionSnapshot& state) {
+    // SAFETY: Resolvedという状態だけでなくProfile実体も要求し、不完全なSessionを
+    // 既定機種として操作可能にしない。
     return state.state == MachineModelSessionState::Resolved &&
            state.profile.has_value();
 }
@@ -80,14 +86,19 @@ void MachiningQueuePresenter::Activate() {
 }
 
 void MachiningQueuePresenter::OnSnapshotChanged() {
+    // WHY: 通知時点の差分を再生せず、Storeの最新Snapshotと共有選択から描画する。
+    // Messageが滞留しても古いQueuePriorityへ表示を戻さない。
     view_.Render(BuildViewModel());
 }
 
 void MachiningQueuePresenter::OnOperationCompleted(
     const ShelfManager::Application::OperationId operationId) {
+    // OperationIdだけを通知境界から受け取り、結果の正本はStoreから再取得する。
     const auto record = operationStateStore_.Find(operationId);
     if (record.has_value() &&
         record->kind == ShelfManager::Application::OperationKind::PriorityChange) {
+        // 成功はUse Caseが順位書込みとStandard読戻しを確認したことを示す。
+        // 加工開始や加工場搬送の完了を意味しない。
         lastMessage_ =
             record->phase == ShelfManager::Application::OperationPhase::Succeeded
                 ? L"加工順位を更新しました。"
@@ -109,9 +120,12 @@ void MachiningQueuePresenter::SelectWorkpiece(
             return candidate.id == workpieceId;
         });
     if (found == snapshot->workpieces.end()) {
+        // SAFETY: 古い表Rowからの入力で共有選択を存在しないIDへ変更しない。
         return;
     }
 
+    // WHY: 通信停止中でも既に表示できる一覧の選択・閲覧は継続する。
+    // 外部変更の可否はButton状態とWorker上のUse Caseで別に判定する。
     uiState_.SelectWorkpiece(workpieceId);
     detailRequests_.RequestWorkpieceDetail(workpieceId);
     view_.Render(BuildViewModel());
@@ -142,6 +156,8 @@ void MachiningQueuePresenter::SubmitMove(
         return;
     }
 
+    // SAFETY: UI操作時点のVersionと対象IDを値でTaskへ固定する。
+    // Queue待機中にSnapshotが進んだ場合、Use CaseがConflictとして外部書込み前に拒否する。
     const auto expectedVersion = snapshot->version;
     const auto workpieceId = *selected;
     const auto submitted = executor_.Submit(
@@ -158,6 +174,7 @@ void MachiningQueuePresenter::SubmitMove(
     if (!submitted.HasValue()) {
         lastMessage_ = L"加工順位変更を受け付けられませんでした。";
     } else {
+        // Submit成功はRunning RecordとFIFO登録までであり、順位書込み完了ではない。
         lastMessage_ = L"加工順位を変更しています。";
     }
     view_.Render(BuildViewModel());
@@ -175,6 +192,8 @@ MachiningQueueViewModel MachiningQueuePresenter::BuildViewModel() {
     viewModel.synchronizing = false;
     viewModel.messageText = lastMessage_;
 
+    // SAFETY: Snapshot内の順位をそのまま表へ流さず、重複・欠番・ID重複を
+    // Domain Queueで再検証する。不正時は変更Buttonを有効化しない。
     const auto queue = MachiningQueue::Create(
         snapshot->version,
         snapshot->workpieces);
@@ -194,6 +213,8 @@ MachiningQueueViewModel MachiningQueuePresenter::BuildViewModel() {
         : queue.Value().Workpieces().end();
     if (selected.has_value() &&
         selectedIterator == queue.Value().Workpieces().end()) {
+        // SAFETY: 消失したWorkpieceの共有選択と詳細表示を残さず、別画面の
+        // 手動搬送対象として再利用されないようにする。
         uiState_.SelectWorkpiece(std::nullopt);
         detailRequests_.RequestWorkpieceDetail(std::nullopt);
         selected.reset();
@@ -201,6 +222,8 @@ MachiningQueueViewModel MachiningQueuePresenter::BuildViewModel() {
 
     const auto machineModelState = profileSource_.CurrentState();
     const auto machineModelSafe = IsMachineModelSafe(machineModelState);
+    // Presentation上の操作可否は通信・鮮度・Executor受付・機種契約を合成する。
+    // これは最終安全境界ではなく、Use Caseが実行時のSnapshotとProfileを再確認する。
     const auto baseControlsEnabled = IsInteractive(*snapshot) &&
                                      executor_.IsAccepting() &&
                                      machineModelSafe;
@@ -221,6 +244,7 @@ MachiningQueueViewModel MachiningQueuePresenter::BuildViewModel() {
     if (selected.has_value()) {
         const auto running =
             operationStateStore_.HasRunningOperationFor(*selected);
+        // 同一Workpieceに操作中Recordがある間は、二つ目の順位変更を表示上も抑止する。
         viewModel.controlsEnabled = baseControlsEnabled && !running;
         const auto index = static_cast<std::size_t>(
             std::distance(
@@ -238,6 +262,7 @@ MachiningQueueViewModel MachiningQueuePresenter::BuildViewModel() {
 
         if (snapshot->workpieceDetail.has_value() &&
             snapshot->workpieceDetail->id == *selected) {
+            // SAFETY: OnDemand詳細が別の選択IDに属する場合は表示へ流用しない。
             for (const auto& instruction :
                  snapshot->workpieceDetail->instructions.Instructions()) {
                 viewModel.instructions.push_back(InstructionRowViewModel{
