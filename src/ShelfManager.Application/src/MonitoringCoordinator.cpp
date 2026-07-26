@@ -49,8 +49,8 @@ ShelfManager::Domain::Result<void> MonitoringCoordinator::Tick() {
         const auto read = reader_.Read(request);
 
         if (request.monitoringClass == MonitoringClass::Standard) {
-            // 機種情報は通常Snapshotとは独立して扱い、取得失敗でも棚・Workpieceの
-            // 監視結果を公開できるようにする。
+            // WHY: 通常Snapshot読取と機種取得は独立した結果として扱い、
+            // 一方の失敗を理由に他方の観測結果を破棄しない。
             ObserveMachineModel();
         }
 
@@ -97,6 +97,8 @@ void MonitoringCoordinator::RequestWorkpieceDetail(
 void MonitoringCoordinator::ObserveMachineModel() {
     if (machineModelProvider_ == nullptr || machineModelSession_ == nullptr ||
         machineModelNotificationSink_ == nullptr) {
+        // WHY: 移行互換Constructorでは機種監視を意図的に結線せず、
+        // 既存のSnapshot監視だけを継続する。
         return;
     }
 
@@ -106,6 +108,8 @@ void MonitoringCoordinator::ObserveMachineModel() {
                              : machineModelSession_->ObserveFailure(
                                    model.ErrorValue());
     if (changed) {
+        // THREAD: この呼出しは監視Worker上で行う。MFC SinkはPostMessageだけを実行し、
+        // WindowやPresenterを監視スレッドから直接操作しない。
         machineModelNotificationSink_->OnMachineModelStateChanged();
     }
 }
