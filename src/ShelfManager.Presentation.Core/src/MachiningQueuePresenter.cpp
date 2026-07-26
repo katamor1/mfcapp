@@ -97,7 +97,8 @@ void MachiningQueuePresenter::OnOperationCompleted(
     const auto record = operationStateStore_.Find(operationId);
     if (record.has_value() &&
         record->kind == ShelfManager::Application::OperationKind::PriorityChange) {
-        // 成功はUse Caseが順位書込みとStandard読戻しを確認したことを示す。
+        // 成功は、実変更時には順位書込みとStandard読戻しの一致を確認し、
+        // 先頭を上げる／末尾を下げる境界no-opでは外部I/O不要と判定したことを示す。
         // 加工開始や加工場搬送の完了を意味しない。
         lastMessage_ =
             record->phase == ShelfManager::Application::OperationPhase::Succeeded
