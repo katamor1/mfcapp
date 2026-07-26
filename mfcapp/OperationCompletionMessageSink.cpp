@@ -17,6 +17,8 @@ void OperationCompletionMessageSink::OnOperationCompleted(
         completed_.push_back(operationId);
     }
 
+    // SAFETY: Window破棄後は別Windowへ転送せず、Worker threadからViewを直接呼ばない。
+    // 操作結果の正本はOperationStateStoreにあり、SinkはComposition Rootと共に破棄される。
     if (::IsWindow(targetWindow_)) {
         // WHY: PostMessageの成否にかかわらずQueueからIDを削除しない。
         // 後続の正常通知は滞留IDをまとめてDrainでき、同期Callbackによる再入も避けられる。
@@ -25,9 +27,6 @@ void OperationCompletionMessageSink::OnOperationCompleted(
             WM_APP_OPERATION_COMPLETED,
             0U,
             0));
-    } else {
-        // SAFETY: Window破棄後は別Windowへ転送せず、Worker threadからViewを直接呼ばない。
-        // 操作結果の正本はOperationStateStoreにあり、SinkはComposition Rootと共に破棄される。
     }
 }
 
