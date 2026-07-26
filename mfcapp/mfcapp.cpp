@@ -104,6 +104,9 @@ BOOL CmfcappApp::InitInstance() {
             std::wstring(L"棚管理GUIを初期化できませんでした。\n\n") +
             diagnostic;
         AfxMessageBox(message.c_str(), MB_OK | MB_ICONERROR);
+
+        // SAFETY: Frameを破棄する前にComposition Rootを破棄し、Start途中で生成された
+        // Worker、Sink、PresenterのRollbackを完了させる。DestructorのStopは冪等である。
         compositionRoot_.reset();
         m_pMainWnd = nullptr;
         frame->DestroyWindow();
@@ -116,6 +119,8 @@ BOOL CmfcappApp::InitInstance() {
 }
 
 int CmfcappApp::ExitInstance() {
+    // WHY: 通常終了はCMainFrame::OnCloseで先に停止するが、初期化後に別経路で
+    // ExitInstanceへ到達した場合にも、Window関連依存を残さない最後の停止境界とする。
     StopComposition();
     compositionRoot_.reset();
     return CWinApp::ExitInstance();
@@ -123,6 +128,8 @@ int CmfcappApp::ExitInstance() {
 
 void CmfcappApp::StopComposition() noexcept {
     if (compositionRoot_ != nullptr) {
+        // THREAD: MFC LifecycleのUI threadから呼び、Stop中にStartやWindow破棄を競合させない。
+        // Stopは複数回呼べるため、OnCloseとExitInstanceの双方から安全に利用できる。
         compositionRoot_->Stop();
     }
 }
