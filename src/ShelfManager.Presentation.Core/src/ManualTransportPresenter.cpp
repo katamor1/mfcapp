@@ -128,6 +128,8 @@ std::wstring DenialText(const TransportDenialReason reason) {
 }
 
 bool IsMachineModelSafe(const MachineModelSessionSnapshot& state) {
+    // SAFETY: Resolved状態だけでなくProfile実体を要求し、不完全なSessionや
+    // 未登録機種を既定の工具契約として手動搬送可能にしない。
     return state.state == MachineModelSessionState::Resolved &&
            state.profile.has_value();
 }
@@ -167,14 +169,19 @@ void ManualTransportPresenter::Activate() {
 }
 
 void ManualTransportPresenter::OnSnapshotChanged() {
+    // WHY: 通知payloadを状態の正本にせず、Snapshot、共有選択、認証、機種Sessionを
+    // 再取得して描画する。Messageが滞留しても古い搬送可否へ表示を戻さない。
     view_.Render(BuildViewModel());
 }
 
 void ManualTransportPresenter::OnOperationCompleted(
     const ShelfManager::Application::OperationId operationId) {
+    // OperationIdだけを通知境界から受け取り、結果の正本はStoreから再取得する。
     const auto record = operationStateStore_.Find(operationId);
     if (record.has_value() &&
         record->kind == ShelfManager::Application::OperationKind::ManualTransport) {
+        // 成功はGateway受付後のStandard読戻しで、対象が搬送中または要求先へ到着済みと
+        // 確認できたことを示す。物理搬送工程全体の完了通知ではない。
         lastMessage_ =
             record->phase == ShelfManager::Application::OperationPhase::Succeeded
                 ? L"手動搬送要求を確認しました。"
@@ -185,6 +192,8 @@ void ManualTransportPresenter::OnOperationCompleted(
 
 void ManualTransportPresenter::SelectWorkpiece(
     const ShelfManager::Domain::WorkpieceId workpieceId) {
+    // WHY: ここでは共有UI選択だけを更新する。最新Snapshotに存在するか、棚上で搬送対象に
+    // なり得るかは直後のBuildViewModelとWorker上のUse Caseで再確認する。
     uiState_.SelectWorkpiece(workpieceId);
     view_.Render(BuildViewModel());
 }
@@ -193,8 +202,11 @@ void ManualTransportPresenter::SelectDestination(
     const std::size_t destinationIndex) {
     const auto snapshot = snapshotStore_.Current();
     if (!snapshot || destinationIndex >= snapshot->destinations.size()) {
+        // SAFETY: 古い画面indexや初回同期前の入力で、推測した搬送先を選択しない。
         return;
     }
+    // 選択時点の搬送先を値で保存する。利用可否はBuildViewModelとUse Caseが
+    // 最新Snapshotで再評価し、選択しただけでは外部要求を発生させない。
     uiState_.SelectDestination(
         snapshot->destinations[destinationIndex].destination);
     view_.Render(BuildViewModel());
@@ -203,6 +215,8 @@ void ManualTransportPresenter::SelectDestination(
 void ManualTransportPresenter::Submit() {
     const auto machineModelState = profileSource_.CurrentState();
     if (!IsMachineModelSafe(machineModelState)) {
+        // SAFETY: Button状態だけに依存せず、UI event処理入口でも機種未確定・不一致を拒否する。
+        // 非冪等な搬送要求の直前にはUse CaseがRequireProfileを再実行する。
         lastMessage_ = MachineModelDenialText(machineModelState);
         view_.Render(BuildViewModel());
         return;
@@ -218,6 +232,8 @@ void ManualTransportPresenter::Submit() {
         return;
     }
 
+    // SAFETY: UI操作時点のVersion、対象、搬送先を値でTaskへ固定する。
+    // FIFO待機中にSnapshotが進めば、Use Caseが外部要求前にConflictとして拒否する。
     const auto expectedVersion = snapshot->version;
     const auto workpieceId = *selectedWorkpiece;
     const auto destination = *selectedDestination;
@@ -232,6 +248,8 @@ void ManualTransportPresenter::Submit() {
                 workpieceId,
                 destination);
         });
+    // Submit成功はRunning Record作成とFIFO登録までであり、Gateway受付、搬送開始、
+    // 読戻し確認のいずれもまだ保証しない。
     lastMessage_ = submitted.HasValue()
                        ? L"手動搬送を実行しています。"
                        : L"手動搬送を受け付けられませんでした。";
@@ -263,6 +281,7 @@ ManualTransportViewModel ManualTransportPresenter::BuildViewModel() {
         : snapshot->workpieces.end();
     if (selectedWorkpiece.has_value() &&
         workpiece == snapshot->workpieces.end()) {
+        // SAFETY: 消失した共有選択を別Workpieceの搬送要求へ流用しない。
         uiState_.SelectWorkpiece(std::nullopt);
         selectedWorkpiece.reset();
     }
@@ -277,12 +296,14 @@ ManualTransportViewModel ManualTransportPresenter::BuildViewModel() {
         : snapshot->destinations.end();
     if (selectedDestination.has_value() &&
         destination == snapshot->destinations.end()) {
+        // SAFETY: 現在の機械構成から消失した搬送先を選択状態に残さない。
         uiState_.SelectDestination(std::nullopt);
         selectedDestination.reset();
     }
 
     for (const auto& candidate : snapshot->workpieces) {
         if (!std::holds_alternative<RackSlot>(candidate.location)) {
+            // SOURCE: MVP手動搬送Formは棚にあるWorkpieceだけを要求元候補として表示する。
             continue;
         }
         viewModel.workpieces.push_back(WorkpieceOptionViewModel{
@@ -297,6 +318,8 @@ ManualTransportViewModel ManualTransportPresenter::BuildViewModel() {
         const auto& candidate = snapshot->destinations[index];
         const auto available =
             candidate.availability == DestinationAvailability::Available;
+        // WHY: 利用不可の搬送先も理由付きで表示し、存在自体を隠さない。
+        // 選択・送信可否はPolicyがavailabilityを含めて判定する。
         viewModel.destinations.push_back(DestinationOptionViewModel{
             index,
             DestinationText(candidate.destination) +
@@ -306,6 +329,8 @@ ManualTransportViewModel ManualTransportPresenter::BuildViewModel() {
             available});
     }
 
+    // Presentation用の現在値として認証を取得するが、非冪等要求の権限証跡として
+    // 再利用せず、Use CaseがGateway送信前にAuthorizeを再実行する。
     const auto authorization = authorization_.Authorize(
         ShelfManager::Application::OperatorAction::ManualTransport);
     viewModel.authorizationText = AuthorizationText(authorization);
@@ -346,6 +371,8 @@ ManualTransportViewModel ManualTransportPresenter::BuildViewModel() {
 
     viewModel.locationText = LocationText(selectedWorkpieceIterator->location);
     viewModel.statusText = StatusText(selectedWorkpieceIterator->status);
+    // Presentation上の許可判定は認証、運転Mode、通信、鮮度、対象状態、搬送先、
+    // 同一Workpiece操作中を合成する。最終安全境界ではなく、Use Caseが実行時に再評価する。
     const auto decision = policy_.Evaluate(ManualTransportContext{
         authorization,
         snapshot->health.mode,
