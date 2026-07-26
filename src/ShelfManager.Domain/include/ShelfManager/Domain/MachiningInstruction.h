@@ -56,9 +56,9 @@ struct MachiningInstructionRef final {
 };
 
 // 一つのWorkpieceに紐付く加工指示書列。
-// Createは最大10件、実行順の重複なしを検証し、内部Copyを実行順で昇順に正規化する。
-// 空列、実行順の欠番、同名指示書の再利用はこの型では拒否せず、外部契約または
-// 入力画面・ファイル選択Use Caseが必要に応じて制約する。
+// Createは最大10件、実行順の重複なしを検証し、受け取った内部vectorを実行順で
+// 昇順に正規化する。空列、実行順の欠番、同名指示書の再利用はこの型では拒否せず、
+// 外部契約または入力画面・ファイル選択Use Caseが必要に応じて制約する。
 class MachiningInstructionSequence final {
 public:
     // 一件でも契約違反があれば部分Sequenceを返さずInvalidArgumentとする。
