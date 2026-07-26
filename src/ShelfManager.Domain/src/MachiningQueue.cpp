@@ -11,7 +11,7 @@ Result<MachiningQueue> MachiningQueue::Create(
     const SnapshotVersion version,
     std::vector<WorkpieceSummary> workpieces) {
     // WHY: 外部応答の配列順を正本にせず、型付きQueuePriorityで内部順序を決める。
-    // 入力は値で受けているため、呼出し側が保持するSnapshot一覧は並べ替えない。
+    // 値引数として受け取ったvectorだけを並べ替え、外部Containerへの参照を保持しない。
     std::sort(
         workpieces.begin(),
         workpieces.end(),
