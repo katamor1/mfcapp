@@ -8,8 +8,10 @@
 
 namespace ShelfManager::Application {
 
-// Assemblerが新しいSnapshotを生成した場合だけsnapshotを保持する。
-// changeFlagsは、生成したSnapshotのどの表示領域が前回値から変化したかを示す。
+// Assemblerが公開候補となる新しいSnapshotを生成した場合だけsnapshotを保持する。
+// snapshotがnullの場合は「失敗」ではなく、初回必須値待ちまたは観測可能な変更なしを示す。
+// changeFlagsは生成したSnapshotのどの表示領域が直前の組立値から変化したかを示し、
+// MachineSnapshotStoreへの公開成功やUI再描画完了までは保証しない。
 struct SnapshotAssemblyOutcome final {
     std::shared_ptr<const ShelfManager::Domain::MachineSnapshot> snapshot;
     SnapshotChangeFlag changeFlags{SnapshotChangeFlag::None};
@@ -22,27 +24,32 @@ struct SnapshotAssemblyOutcome final {
 // Critical／Standard／OnDemandの部分応答を、整合したMachineSnapshotへ集約する。
 // 初回の必須Fragmentが揃うまではSnapshotを生成せず、既存値に観測可能な変更が
 // ない周期も新しいSnapshotVersionを発行しない。
+// Fragmentのnulloptはその監視区分で未取得の領域を表し、既存値の削除指示ではない。
 //
 // THREAD: MonitoringCoordinatorが直列に呼び出す前提であり、同時呼出しは
 // サポートしない。公開後のSnapshotはイミュータブルである。
+// 所有権: Assemblerは最新組立Snapshotを共有所有し、Outcome／Currentの呼出し側も
+// shared_ptrを保持することで独立して寿命を延長できる。
 class MachineSnapshotAssembler final {
 public:
-    // 正常取得したFragmentを保持し、必須情報が揃って変更がある場合だけ
-    // 新しいSnapshotとchangeFlagsを返す。
+    // Fragment内で値を持つ領域だけを更新する。必須情報が揃い、直前組立値から
+    // 観測可能な変更がある場合だけ、新しいSnapshotとchangeFlagsを返す。
+    // 成功Fragmentを受け付けても、値が等しければVersionと通知候補を増やさない。
     [[nodiscard]] SnapshotAssemblyOutcome AcceptSuccess(
         MonitoringClass monitoringClass,
         const MachineSnapshotFragment& fragment,
         ShelfManager::Domain::TimePoint capturedAt);
 
     // Critical／Standard取得失敗をStaleまたはUnavailableとして反映する。
-    // 最終正常値がある場合は破棄せず保持する。OnDemand失敗だけでは、
-    // 現在の全体Snapshotを更新しない。
+    // 最終正常値がある場合は破棄せず保持し、最後に取得できた値であることをFreshnessで示す。
+    // OnDemand失敗だけでは、既存の全体Snapshotと最後のWorkpieceDetailを更新しない。
     [[nodiscard]] SnapshotAssemblyOutcome AcceptFailure(
         MonitoringClass monitoringClass,
         const ShelfManager::Domain::Error& error,
         ShelfManager::Domain::TimePoint capturedAt);
 
     // Assemblerが最後に生成したSnapshotを返す。初回組立完了前はnullとなる。
+    // MachineSnapshotStoreへの公開成否は表さず、Assembler内部の最後の組立値である。
     [[nodiscard]] std::shared_ptr<const ShelfManager::Domain::MachineSnapshot>
     Current() const noexcept;
 
@@ -50,6 +57,8 @@ private:
     [[nodiscard]] SnapshotAssemblyOutcome TryAssemble(
         ShelfManager::Domain::TimePoint capturedAt);
 
+    // CriticalとStandardのうち悪いFreshnessを全体状態とし、双方が正常だった
+    // 最も古い時刻をlastSuccessfulReadとして返す。
     [[nodiscard]] ShelfManager::Domain::DataFreshness CombinedFreshness() const;
 
     std::optional<ShelfManager::Domain::MachineHealth> health_;
