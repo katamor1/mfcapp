@@ -8,6 +8,8 @@
 namespace ShelfManager::Application {
 namespace {
 
+// WHY: Domainの拒否理由をApplicationのErrorCodeへ一箇所で写像し、
+// 認証・運転条件の失敗とGatewayの通信失敗を同じ意味で扱わない。
 ShelfManager::Domain::Error DecisionError(
     const ShelfManager::Domain::TransportDenialReason reason) {
     using ShelfManager::Domain::ErrorCode;
@@ -45,6 +47,8 @@ ShelfManager::Domain::Error DecisionError(
             "Manual transport policy returned an invalid decision."};
 }
 
+// WHY: 読戻しはWorkpieceLocationで返るため、要求先のvariant値を補正せず
+// 同じ位置型へ昇格し、要求した搬送先との完全一致に使用する。
 ShelfManager::Domain::WorkpieceLocation DestinationAsLocation(
     const ShelfManager::Domain::TransportDestination& destination) {
     return std::visit(
@@ -117,7 +121,7 @@ ShelfManager::Domain::Result<void> RequestManualTransportUseCase::Execute(
             {ErrorCode::Conflict, "Manual transport destination disappeared."});
     }
 
-    // SAFETY: Form表示時の認証結果を再利用せず、要求送信直前に再評価する。
+    // SAFETY: Form表示時の認証結果を再利用せず、要求送信直前の状態で再評価する。
     const auto decision = policy_.Evaluate(ManualTransportContext{
         authorization_.Authorize(OperatorAction::ManualTransport),
         snapshot->health.mode,
@@ -151,7 +155,8 @@ ShelfManager::Domain::Result<void> RequestManualTransportUseCase::Execute(
             {ErrorCode::Rejected, "Machine rejected manual transport."});
     }
 
-    // SAFETY: 搬送要求は再送せず、一回のStandard読戻しで受付後状態を確認する。
+    // SAFETY: accepted後に結果が不明でも搬送要求は再送しない。外部で受付済みの
+    // 可能性があるため、次のSnapshotから状態を確認する。
     const auto readback = stateReader_.Read(
         MonitoringRequest{MonitoringClass::Standard, std::nullopt});
     if (!readback.HasValue()) {
@@ -177,6 +182,8 @@ ShelfManager::Domain::Result<void> RequestManualTransportUseCase::Execute(
     }
 
     const auto destinationLocation = DestinationAsLocation(destination);
+    // WHY: 非同期搬送ではInTransport、短時間で完了した搬送では次回読戻し時点で
+    // 要求先へ到着済みとなり得るため、どちらも要求受付後の進行証跡として扱う。
     if (!std::holds_alternative<InTransportLocation>(
             readbackWorkpiece->location) &&
         readbackWorkpiece->location != destinationLocation) {
