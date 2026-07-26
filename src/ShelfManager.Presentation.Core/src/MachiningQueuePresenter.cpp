@@ -10,6 +10,8 @@ namespace ShelfManager::Presentation {
 namespace {
 
 using namespace ShelfManager::Domain;
+using ShelfManager::Application::MachineModelSessionSnapshot;
+using ShelfManager::Application::MachineModelSessionState;
 
 std::wstring WidenFixtureText(const std::string& value) {
     return std::wstring(value.begin(), value.end());
@@ -40,6 +42,19 @@ bool IsInteractive(const MachineSnapshot& snapshot) {
            !snapshot.health.errorActive;
 }
 
+bool IsMachineModelSafe(const MachineModelSessionSnapshot& state) {
+    return state.state == MachineModelSessionState::Resolved &&
+           state.profile.has_value();
+}
+
+std::wstring MachineModelDenialText(
+    const MachineModelSessionSnapshot& state) {
+    if (state.state == MachineModelSessionState::MismatchLatched) {
+        return L"起動時と異なる機種を検出したため、加工順位を変更できません。アプリを再起動してください。";
+    }
+    return L"機種情報を確定できないため、加工順位を変更できません。";
+}
+
 }  // namespace
 
 MachiningQueuePresenter::MachiningQueuePresenter(
@@ -49,14 +64,16 @@ MachiningQueuePresenter::MachiningQueuePresenter(
     ShelfManager::Application::IWorkpieceDetailRequestPort& detailRequests,
     ShelfManager::Application::OperationStateStore& operationStateStore,
     ShelfManager::Application::OperationExecutor& executor,
-    ShelfManager::Application::MoveWorkpiecePriorityUseCase& moveUseCase)
+    ShelfManager::Application::MoveWorkpiecePriorityUseCase& moveUseCase,
+    const ShelfManager::Application::IMachineModelProfileSource& profileSource)
     : view_(view),
       snapshotStore_(snapshotStore),
       uiState_(uiState),
       detailRequests_(detailRequests),
       operationStateStore_(operationStateStore),
       executor_(executor),
-      moveUseCase_(moveUseCase) {}
+      moveUseCase_(moveUseCase),
+      profileSource_(profileSource) {}
 
 void MachiningQueuePresenter::Activate() {
     view_.Render(BuildViewModel());
@@ -110,6 +127,13 @@ void MachiningQueuePresenter::MoveDown() {
 
 void MachiningQueuePresenter::SubmitMove(
     const ShelfManager::Domain::MoveDirection direction) {
+    const auto machineModelState = profileSource_.CurrentState();
+    if (!IsMachineModelSafe(machineModelState)) {
+        lastMessage_ = MachineModelDenialText(machineModelState);
+        view_.Render(BuildViewModel());
+        return;
+    }
+
     const auto snapshot = snapshotStore_.Current();
     const auto selected = uiState_.SelectedWorkpiece();
     if (!snapshot || !selected.has_value()) {
@@ -175,8 +199,16 @@ MachiningQueueViewModel MachiningQueuePresenter::BuildViewModel() {
         selected.reset();
     }
 
+    const auto machineModelState = profileSource_.CurrentState();
+    const auto machineModelSafe = IsMachineModelSafe(machineModelState);
     const auto baseControlsEnabled = IsInteractive(*snapshot) &&
-                                     executor_.IsAccepting();
+                                     executor_.IsAccepting() &&
+                                     machineModelSafe;
+    if (!machineModelSafe) {
+        // SAFETY: 閲覧内容は維持し、変更不可の理由だけを機種状態で上書きする。
+        viewModel.messageText = MachineModelDenialText(machineModelState);
+    }
+
     viewModel.rows.reserve(queue.Value().Workpieces().size());
     for (const auto& workpiece : queue.Value().Workpieces()) {
         viewModel.rows.push_back(MachiningQueueRowViewModel{

@@ -7,9 +7,12 @@
 namespace ShelfManager::Presentation {
 namespace {
 
+using ShelfManager::Application::MachineModelSessionSnapshot;
+using ShelfManager::Application::MachineModelSessionState;
 using ShelfManager::Domain::DataFreshnessState;
 using ShelfManager::Domain::MachineConnectionState;
 using ShelfManager::Domain::MachineMode;
+using ShelfManager::Domain::MachineModel;
 
 std::wstring ModeText(const MachineMode mode) {
     switch (mode) {
@@ -37,13 +40,75 @@ std::wstring StaleText(
            std::to_wstring(ageMilliseconds) + L" ms前）";
 }
 
+std::wstring ResolvedModelText(const MachineModel model) {
+    switch (model) {
+        case MachineModel::ProvisionalModel1:
+            return L"機種: 暫定機種1";
+        case MachineModel::ProvisionalModel2:
+            return L"機種: 暫定機種2";
+        case MachineModel::ProvisionalModel3:
+            return L"機種: 暫定機種3";
+    }
+    return L"機種: 確認中";
+}
+
+void ApplyMachineModelState(
+    const MachineModelSessionSnapshot& state,
+    MachineStatusViewModel& viewModel) {
+    switch (state.state) {
+        case MachineModelSessionState::Unresolved:
+            viewModel.machineModelText = L"機種: 確認中";
+            viewModel.operationAvailabilityText =
+                L"安全関連操作: 停止中";
+            viewModel.safetyOperationsEnabled = false;
+            return;
+        case MachineModelSessionState::MismatchLatched:
+            viewModel.machineModelText = L"機種: 不一致";
+            viewModel.operationAvailabilityText =
+                L"安全関連操作: 停止中";
+            viewModel.safetyOperationsEnabled = false;
+            return;
+        case MachineModelSessionState::Resolved:
+            if (!state.profile.has_value()) {
+                // SAFETY: 状態とProfileの組が不完全な場合は操作可能へ倒さない。
+                viewModel.machineModelText = L"機種: 確認中";
+                viewModel.operationAvailabilityText =
+                    L"安全関連操作: 停止中";
+                viewModel.safetyOperationsEnabled = false;
+                return;
+            }
+            viewModel.machineModelText =
+                ResolvedModelText(state.profile->model);
+            viewModel.operationAvailabilityText =
+                L"安全関連操作: 利用可能";
+            viewModel.safetyOperationsEnabled = true;
+            return;
+    }
+}
+
+std::wstring MachineModelMessage(
+    const MachineModelSessionSnapshot& state) {
+    if (state.state == MachineModelSessionState::MismatchLatched) {
+        return L"起動時と異なる機種情報を検出しました。アプリを再起動してください。";
+    }
+    if (state.state != MachineModelSessionState::Resolved ||
+        !state.profile.has_value()) {
+        return L"機種情報を確定できないため、監視のみ継続しています。";
+    }
+    return {};
+}
+
 }  // namespace
 
 MachineStatusPresenter::MachineStatusPresenter(
     IMachineStatusView& view,
     ShelfManager::Application::MachineSnapshotStore& snapshotStore,
-    ShelfManager::Application::IClock& clock)
-    : view_(view), snapshotStore_(snapshotStore), clock_(clock) {}
+    ShelfManager::Application::IClock& clock,
+    const ShelfManager::Application::IMachineModelProfileSource& profileSource)
+    : view_(view),
+      snapshotStore_(snapshotStore),
+      clock_(clock),
+      profileSource_(profileSource) {}
 
 void MachineStatusPresenter::Activate() {
     view_.Render(BuildViewModel());
@@ -54,20 +119,26 @@ void MachineStatusPresenter::OnSnapshotChanged() {
 }
 
 MachineStatusViewModel MachineStatusPresenter::BuildViewModel() const {
+    MachineStatusViewModel viewModel;
+    const auto machineModelState = profileSource_.CurrentState();
+    ApplyMachineModelState(machineModelState, viewModel);
+
     const auto snapshot = snapshotStore_.Current();
     if (!snapshot) {
-        return MachineStatusViewModel{
-            L"同期中",
-            L"機械状態を取得しています",
-            L"未取得",
-            L"初回同期が完了するまで操作できません。",
-            StatusLampState::Unknown,
-            StatusLampState::Unknown,
-            false,
-            true};
+        viewModel.connectionText = L"同期中";
+        viewModel.machineText = L"機械状態を取得しています";
+        viewModel.freshnessText = L"未取得";
+        viewModel.messageText = MachineModelMessage(machineModelState);
+        if (viewModel.messageText.empty()) {
+            viewModel.messageText = L"初回同期が完了するまで操作できません。";
+        }
+        viewModel.connectionLamp = StatusLampState::Unknown;
+        viewModel.machineLamp = StatusLampState::Unknown;
+        viewModel.controlsEnabled = false;
+        viewModel.synchronizing = true;
+        return viewModel;
     }
 
-    MachineStatusViewModel viewModel;
     viewModel.synchronizing = false;
 
     switch (snapshot->health.connectionState) {
@@ -112,7 +183,11 @@ MachineStatusViewModel MachineStatusPresenter::BuildViewModel() const {
             break;
     }
 
-    if (snapshot->health.connectionState == MachineConnectionState::Disconnected) {
+    const auto modelMessage = MachineModelMessage(machineModelState);
+    if (!modelMessage.empty()) {
+        viewModel.messageText = modelMessage;
+    } else if (snapshot->health.connectionState ==
+               MachineConnectionState::Disconnected) {
         viewModel.messageText = L"機械との通信が切断されています。";
     } else if (snapshot->health.errorActive) {
         viewModel.messageText = L"機械エラーが発生しています。";
@@ -122,6 +197,7 @@ MachineStatusViewModel MachineStatusPresenter::BuildViewModel() const {
         viewModel.messageText = L"正常";
     }
     viewModel.controlsEnabled =
+        viewModel.safetyOperationsEnabled &&
         snapshot->health.connectionState == MachineConnectionState::Connected &&
         snapshot->freshness.state == DataFreshnessState::Fresh &&
         !snapshot->health.errorActive;

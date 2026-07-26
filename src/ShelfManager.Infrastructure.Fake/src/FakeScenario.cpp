@@ -141,11 +141,18 @@ MachineSnapshot Snapshot(
 }  // namespace
 
 ShelfManager::Domain::Result<FakeScenario> FakeScenario::Create(
+    const ShelfManager::Domain::MachineModel model,
     std::vector<FakeScenarioFrame> frames) {
     using ShelfManager::Domain::ErrorCode;
     using ShelfManager::Domain::Result;
 
-    if (frames.empty() || frames.front().offset != std::chrono::milliseconds::zero()) {
+    const auto profile = ShelfManager::Domain::MachineModelProfileRegistry::Resolve(
+        model);
+    if (!profile.HasValue()) {
+        return Result<FakeScenario>::Failure(profile.ErrorValue());
+    }
+    if (frames.empty() ||
+        frames.front().offset != std::chrono::milliseconds::zero()) {
         return Result<FakeScenario>::Failure(
             {ErrorCode::InvalidArgument,
              "A fake scenario must begin with a frame at zero milliseconds."});
@@ -159,69 +166,76 @@ ShelfManager::Domain::Result<FakeScenario> FakeScenario::Create(
         }
     }
 
-    return Result<FakeScenario>::Success(FakeScenario(std::move(frames)));
+    return Result<FakeScenario>::Success(
+        FakeScenario(model, std::move(frames)));
 }
 
 FakeScenario FakeScenario::StandardDemo() {
     using namespace std::chrono_literals;
     using namespace ShelfManager::Domain;
 
-    auto scenario = Create({
-        FakeScenarioFrame{
-            0ms,
-            Snapshot(1U,
-                     0ms,
-                     MachineConnectionState::Connected,
-                     WorkpieceStatus::WaitingForMachining,
-                     RackSlot{1U, 1U},
-                     DataFreshnessState::Fresh,
-                     0ms),
-            Details()},
-        FakeScenarioFrame{
-            1000ms,
-            Snapshot(2U,
-                     1000ms,
-                     MachineConnectionState::Connected,
-                     WorkpieceStatus::Machining,
-                     MachiningStationLocation{1U},
-                     DataFreshnessState::Fresh,
-                     1000ms),
-            Details()},
-        FakeScenarioFrame{
-            1500ms,
-            Snapshot(3U,
-                     1500ms,
-                     MachineConnectionState::Connected,
-                     WorkpieceStatus::InterruptedAbnormally,
-                     RackSlot{1U, 1U},
-                     DataFreshnessState::Fresh,
-                     1500ms),
-            Details()},
-        FakeScenarioFrame{
-            2000ms,
-            Snapshot(4U,
-                     2000ms,
-                     MachineConnectionState::Disconnected,
-                     WorkpieceStatus::InterruptedAbnormally,
-                     RackSlot{1U, 1U},
-                     DataFreshnessState::Stale,
-                     1500ms),
-            Details()},
-        FakeScenarioFrame{
-            3000ms,
-            Snapshot(5U,
-                     3000ms,
-                     MachineConnectionState::Connected,
-                     WorkpieceStatus::InterruptedAbnormally,
-                     RackSlot{1U, 1U},
-                     DataFreshnessState::Fresh,
-                     3000ms),
-            Details()}});
+    auto scenario = Create(
+        MachineModel::ProvisionalModel1,
+        {
+            FakeScenarioFrame{
+                0ms,
+                Snapshot(1U,
+                         0ms,
+                         MachineConnectionState::Connected,
+                         WorkpieceStatus::WaitingForMachining,
+                         RackSlot{1U, 1U},
+                         DataFreshnessState::Fresh,
+                         0ms),
+                Details()},
+            FakeScenarioFrame{
+                1000ms,
+                Snapshot(2U,
+                         1000ms,
+                         MachineConnectionState::Connected,
+                         WorkpieceStatus::Machining,
+                         MachiningStationLocation{1U},
+                         DataFreshnessState::Fresh,
+                         1000ms),
+                Details()},
+            FakeScenarioFrame{
+                1500ms,
+                Snapshot(3U,
+                         1500ms,
+                         MachineConnectionState::Connected,
+                         WorkpieceStatus::InterruptedAbnormally,
+                         RackSlot{1U, 1U},
+                         DataFreshnessState::Fresh,
+                         1500ms),
+                Details()},
+            FakeScenarioFrame{
+                2000ms,
+                Snapshot(4U,
+                         2000ms,
+                         MachineConnectionState::Disconnected,
+                         WorkpieceStatus::InterruptedAbnormally,
+                         RackSlot{1U, 1U},
+                         DataFreshnessState::Stale,
+                         1500ms),
+                Details()},
+            FakeScenarioFrame{
+                3000ms,
+                Snapshot(5U,
+                         3000ms,
+                         MachineConnectionState::Connected,
+                         WorkpieceStatus::InterruptedAbnormally,
+                         RackSlot{1U, 1U},
+                         DataFreshnessState::Fresh,
+                         3000ms),
+                Details()}});
 
     if (!scenario.HasValue()) {
         throw std::logic_error("The standard fake scenario is invalid.");
     }
     return scenario.Value();
+}
+
+ShelfManager::Domain::MachineModel FakeScenario::Model() const noexcept {
+    return model_;
 }
 
 std::size_t FakeScenario::FrameIndexAt(
@@ -245,7 +259,9 @@ const FakeScenarioFrame& FakeScenario::FrameAt(
     return frames_[FrameIndexAt(elapsed)];
 }
 
-FakeScenario::FakeScenario(std::vector<FakeScenarioFrame> frames)
-    : frames_(std::move(frames)) {}
+FakeScenario::FakeScenario(
+    const ShelfManager::Domain::MachineModel model,
+    std::vector<FakeScenarioFrame> frames)
+    : model_(model), frames_(std::move(frames)) {}
 
 }  // namespace ShelfManager::Infrastructure::Fake

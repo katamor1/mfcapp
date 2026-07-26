@@ -19,8 +19,8 @@ class ManualTransportPresenter;
 }
 
 // MFC Applicationの常設Shell。
-// 上部MachineStatus、左NavRail、中央Feature Hostを配置し、Snapshot／操作完了通知を
-// UI thread上のPresenter更新へ中継する。業務判断やCOMアクセスは持たない。
+// 上部MachineStatus、左NavRail、中央Feature Hostを配置し、Snapshot、機種状態、
+// 操作完了通知をUI thread上のPresenter更新へ中継する。業務判断やCOMアクセスは持たない。
 class CAppShellView final : public CWnd {
 public:
     CAppShellView();
@@ -67,6 +67,9 @@ protected:
     afx_msg void OnMachiningQueue();
     afx_msg void OnManualTransport();
     afx_msg LRESULT OnSnapshotChanged(WPARAM version, LPARAM changeFlags);
+    afx_msg LRESULT OnMachineModelStateChanged(
+        WPARAM unusedWParam,
+        LPARAM unusedLParam);
     afx_msg LRESULT OnOperationCompleted(
         WPARAM unusedWParam,
         LPARAM unusedLParam);

@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "ShelfManager/Application/MachineModelSession.h"
 #include "ShelfManager/Presentation/MachineStatusPresenter.h"
 
 namespace ShelfManager::Presentation {
@@ -13,6 +14,7 @@ namespace {
 
 using namespace std::chrono_literals;
 using namespace ShelfManager::Domain;
+using ShelfManager::Application::MachineModelSession;
 
 class TestClock final : public ShelfManager::Application::IClock {
 public:
@@ -84,25 +86,38 @@ std::shared_ptr<const MachineSnapshot> Snapshot(
         DataFreshness{freshnessState, lastSuccessfulRead, std::nullopt}});
 }
 
-TEST(MachineStatusPresenterTests, NoSnapshotRendersSynchronizingAndDisablesControls) {
+void Resolve(MachineModelSession& session) {
+    ASSERT_TRUE(session.Observe(MachineModel::ProvisionalModel1));
+}
+
+TEST(MachineStatusPresenterTests,
+     NoSnapshotRendersSynchronizingAndDisablesControls) {
     ShelfManager::Application::MachineSnapshotStore store;
     RecordingMachineStatusView view;
     TestClock clock(TimePoint{1s});
-    MachineStatusPresenter presenter(view, store, clock);
+    MachineModelSession session;
+    MachineStatusPresenter presenter(view, store, clock, session);
 
     presenter.Activate();
 
     EXPECT_EQ(1, view.RenderCount());
     EXPECT_TRUE(view.Last().synchronizing);
     EXPECT_EQ(L"同期中", view.Last().connectionText);
+    EXPECT_EQ(L"機種: 確認中", view.Last().machineModelText);
+    EXPECT_EQ(L"安全関連操作: 停止中",
+              view.Last().operationAvailabilityText);
+    EXPECT_FALSE(view.Last().safetyOperationsEnabled);
     EXPECT_FALSE(view.Last().controlsEnabled);
 }
 
-TEST(MachineStatusPresenterTests, DisconnectedAndMachineErrorAreDistinct) {
+TEST(MachineStatusPresenterTests,
+     DisconnectedAndMachineErrorAreDistinct) {
     ShelfManager::Application::MachineSnapshotStore store;
     RecordingMachineStatusView view;
     TestClock clock(TimePoint{2s});
-    MachineStatusPresenter presenter(view, store, clock);
+    MachineModelSession session;
+    Resolve(session);
+    MachineStatusPresenter presenter(view, store, clock, session);
 
     ASSERT_TRUE(store.Publish(Snapshot(1U,
                                        TimePoint{1s},
@@ -136,7 +151,9 @@ TEST(MachineStatusPresenterTests, StaleStateIncludesLastSuccessfulReadAge) {
     ShelfManager::Application::MachineSnapshotStore store;
     RecordingMachineStatusView view;
     TestClock clock(TimePoint{1500ms});
-    MachineStatusPresenter presenter(view, store, clock);
+    MachineModelSession session;
+    Resolve(session);
+    MachineStatusPresenter presenter(view, store, clock, session);
 
     ASSERT_TRUE(store.Publish(Snapshot(1U,
                                        TimePoint{1500ms},
@@ -153,11 +170,14 @@ TEST(MachineStatusPresenterTests, StaleStateIncludesLastSuccessfulReadAge) {
     EXPECT_FALSE(view.Last().controlsEnabled);
 }
 
-TEST(MachineStatusPresenterTests, FreshConnectedHealthyStateEnablesControls) {
+TEST(MachineStatusPresenterTests,
+     FreshConnectedHealthyResolvedStateEnablesControls) {
     ShelfManager::Application::MachineSnapshotStore store;
     RecordingMachineStatusView view;
     TestClock clock(TimePoint{1s});
-    MachineStatusPresenter presenter(view, store, clock);
+    MachineModelSession session;
+    Resolve(session);
+    MachineStatusPresenter presenter(view, store, clock, session);
 
     ASSERT_TRUE(store.Publish(Snapshot(1U,
                                        TimePoint{1s},
@@ -171,7 +191,65 @@ TEST(MachineStatusPresenterTests, FreshConnectedHealthyStateEnablesControls) {
 
     EXPECT_EQ(L"通信中", view.Last().connectionText);
     EXPECT_EQ(L"最新", view.Last().freshnessText);
+    EXPECT_EQ(L"機種: 暫定機種1", view.Last().machineModelText);
+    EXPECT_EQ(L"安全関連操作: 利用可能",
+              view.Last().operationAvailabilityText);
+    EXPECT_TRUE(view.Last().safetyOperationsEnabled);
     EXPECT_TRUE(view.Last().controlsEnabled);
+}
+
+TEST(MachineStatusPresenterTests,
+     UnresolvedMachineModelKeepsSnapshotVisibleAndDisablesControls) {
+    ShelfManager::Application::MachineSnapshotStore store;
+    RecordingMachineStatusView view;
+    TestClock clock(TimePoint{1s});
+    MachineModelSession session;
+    MachineStatusPresenter presenter(view, store, clock, session);
+    ASSERT_TRUE(store.Publish(Snapshot(1U,
+                                       TimePoint{1s},
+                                       MachineConnectionState::Connected,
+                                       false,
+                                       false,
+                                       DataFreshnessState::Fresh,
+                                       TimePoint{1s}))
+                    .HasValue());
+
+    presenter.OnSnapshotChanged();
+
+    EXPECT_FALSE(view.Last().synchronizing);
+    EXPECT_EQ(L"通信中", view.Last().connectionText);
+    EXPECT_EQ(L"機種: 確認中", view.Last().machineModelText);
+    EXPECT_FALSE(view.Last().safetyOperationsEnabled);
+    EXPECT_FALSE(view.Last().controlsEnabled);
+    EXPECT_NE(std::wstring::npos,
+              view.Last().messageText.find(L"監視のみ継続"));
+}
+
+TEST(MachineStatusPresenterTests,
+     MismatchLatchStaysDisabledAndRequestsRestart) {
+    ShelfManager::Application::MachineSnapshotStore store;
+    RecordingMachineStatusView view;
+    TestClock clock(TimePoint{1s});
+    MachineModelSession session;
+    Resolve(session);
+    ASSERT_TRUE(session.Observe(MachineModel::ProvisionalModel2));
+    MachineStatusPresenter presenter(view, store, clock, session);
+    ASSERT_TRUE(store.Publish(Snapshot(1U,
+                                       TimePoint{1s},
+                                       MachineConnectionState::Connected,
+                                       false,
+                                       false,
+                                       DataFreshnessState::Fresh,
+                                       TimePoint{1s}))
+                    .HasValue());
+
+    presenter.OnSnapshotChanged();
+
+    EXPECT_EQ(L"機種: 不一致", view.Last().machineModelText);
+    EXPECT_FALSE(view.Last().safetyOperationsEnabled);
+    EXPECT_FALSE(view.Last().controlsEnabled);
+    EXPECT_NE(std::wstring::npos,
+              view.Last().messageText.find(L"再起動"));
 }
 
 }  // namespace

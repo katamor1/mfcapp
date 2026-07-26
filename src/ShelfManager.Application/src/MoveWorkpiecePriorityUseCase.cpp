@@ -9,11 +9,13 @@ MoveWorkpiecePriorityUseCase::MoveWorkpiecePriorityUseCase(
     MachineSnapshotStore& snapshotStore,
     IMachineCommandGateway& commandGateway,
     IMachineStateReader& stateReader,
-    OperationStateStore& operationStateStore)
+    OperationStateStore& operationStateStore,
+    const IMachineModelProfileSource& profileSource)
     : snapshotStore_(snapshotStore),
       commandGateway_(commandGateway),
       stateReader_(stateReader),
-      operationStateStore_(operationStateStore) {}
+      operationStateStore_(operationStateStore),
+      profileSource_(profileSource) {}
 
 ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
     const OperationId operationId,
@@ -21,6 +23,13 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
     const ShelfManager::Domain::WorkpieceId workpieceId,
     const ShelfManager::Domain::MoveDirection direction) {
     using namespace ShelfManager::Domain;
+
+    // SAFETY: 機種未確定または不一致時は、Snapshotや操作状態を参照する前に
+    // 終了し、順位変更Gatewayへ到達しない。
+    const auto profile = profileSource_.RequireProfile();
+    if (!profile.HasValue()) {
+        return Result<void>::Failure(profile.ErrorValue());
+    }
 
     const auto snapshot = snapshotStore_.Current();
     if (!snapshot) {
@@ -57,7 +66,16 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
         return Result<void>::Failure(plan.ErrorValue());
     }
     if (!plan.Value().changed) {
+        // WHY: 先頭を上げる、または末尾を下げる操作は正常なno-opである。
+        // 外部書込みと読戻しを行わず、同じ順位を不要に再送しない。
         return Result<void>::Success();
+    }
+
+    // SAFETY: 操作Queue投入後や計画生成中に機種不一致がラッチされた場合、
+    // 外部書込み直前の再確認で停止する。
+    const auto profileBeforeWrite = profileSource_.RequireProfile();
+    if (!profileBeforeWrite.HasValue()) {
+        return Result<void>::Failure(profileBeforeWrite.ErrorValue());
     }
 
     const auto receipt = commandGateway_.ApplyPriorityChange(plan.Value());
@@ -69,7 +87,8 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
             {ErrorCode::Rejected, "Machine rejected priority movement."});
     }
 
-    // SAFETY: 受付だけでは成功表示せず、変更した全Workpieceを一回のStandard読戻しで確認する。
+    // SAFETY: accepted後の読戻し失敗では、外部順位が既に変化した可能性がある。
+    // 同じexpectedVersionで自動再試行せず、次のSnapshotから判断し直す。
     const auto readback = stateReader_.Read(
         MonitoringRequest{MonitoringClass::Standard, std::nullopt});
     if (!readback.HasValue()) {
@@ -82,6 +101,8 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
              "Priority readback did not contain fresh workpiece data."});
     }
 
+    // SAFETY: 変更対象の一部だけが反映された状態を成功にせず、
+    // planに含まれる全assignmentの一致を要求する。
     for (const auto& assignment : plan.Value().assignments) {
         const auto workpiece = std::find_if(
             readback.Value().workpieces->begin(),

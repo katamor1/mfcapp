@@ -150,18 +150,51 @@ ErrorCode MapHresult(const HRESULT result) noexcept {
                : ErrorCode::Unavailable;
 }
 
+Result<void> ConfirmSameProfile(
+    const ShelfManager::Application::IMachineModelProfileSource& source,
+    const MachineModelProfile& expected,
+    const char* message) {
+    const auto current = source.RequireProfile();
+    if (!current.HasValue()) {
+        return Result<void>::Failure(current.ErrorValue());
+    }
+    if (current.Value() != expected) {
+        return Result<void>::Failure({ErrorCode::Conflict, message});
+    }
+    return Result<void>::Success();
+}
+
 }  // namespace
 
 ComQueuePriorityCheckGateway::ComQueuePriorityCheckGateway(
-    IRawQueuePriorityCheckApi& rawApi) noexcept
-    : rawApi_(rawApi) {}
+    IRawQueuePriorityCheckApi& rawApi,
+    const ShelfManager::Application::IMachineModelProfileSource&
+        profileSource) noexcept
+    : rawApi_(rawApi), profileSource_(profileSource) {}
 
 Result<QueuePriorityCheckResponse> ComQueuePriorityCheckGateway::Check(
     const QueuePriorityCheckRequest& request) {
-    const auto serialized = QueuePriorityCheckJsonCodec::Serialize(request);
+    const auto initialProfile = profileSource_.RequireProfile();
+    if (!initialProfile.HasValue()) {
+        return Result<QueuePriorityCheckResponse>::Failure(
+            initialProfile.ErrorValue());
+    }
+
+    const auto serialized = QueuePriorityCheckJsonCodec::Serialize(
+        initialProfile.Value(), request);
     if (!serialized.HasValue()) {
         return Result<QueuePriorityCheckResponse>::Failure(
             serialized.ErrorValue());
+    }
+
+    // SAFETY: Request構築後に機種不一致が観測された場合、Raw APIを呼び出さない。
+    const auto beforeCall = ConfirmSameProfile(
+        profileSource_,
+        initialProfile.Value(),
+        "Machine model changed before queue-priority API call.");
+    if (!beforeCall.HasValue()) {
+        return Result<QueuePriorityCheckResponse>::Failure(
+            beforeCall.ErrorValue());
     }
 
     const auto wideInput = Utf8ToWide(serialized.Value());
@@ -201,6 +234,15 @@ Result<QueuePriorityCheckResponse> ComQueuePriorityCheckGateway::Check(
             "comQueuePriorityCheckApi returned a null output BSTR.");
     }
 
+    const auto afterCall = ConfirmSameProfile(
+        profileSource_,
+        initialProfile.Value(),
+        "Machine model changed while queue-priority API was running.");
+    if (!afterCall.HasValue()) {
+        return Result<QueuePriorityCheckResponse>::Failure(
+            afterCall.ErrorValue());
+    }
+
     const auto utf8Output = WideToUtf8(std::wstring_view(
         output.Get(), static_cast<std::size_t>(SysStringLen(output.Get()))));
     if (!utf8Output.HasValue()) {
@@ -213,7 +255,22 @@ Result<QueuePriorityCheckResponse> ComQueuePriorityCheckGateway::Check(
             "comQueuePriorityCheckApi returned an empty output BSTR.");
     }
 
-    return QueuePriorityCheckJsonCodec::Parse(utf8Output.Value());
+    const auto parsed = QueuePriorityCheckJsonCodec::Parse(
+        initialProfile.Value(), utf8Output.Value());
+    if (!parsed.HasValue()) {
+        return parsed;
+    }
+
+    // SAFETY: 解析中に不一致がラッチされた場合も、応答を順位変更へ渡さない。
+    const auto beforeReturn = ConfirmSameProfile(
+        profileSource_,
+        initialProfile.Value(),
+        "Machine model changed before queue-priority response adoption.");
+    if (!beforeReturn.HasValue()) {
+        return Result<QueuePriorityCheckResponse>::Failure(
+            beforeReturn.ErrorValue());
+    }
+    return parsed;
 }
 
 }  // namespace ShelfManager::Infrastructure::Com

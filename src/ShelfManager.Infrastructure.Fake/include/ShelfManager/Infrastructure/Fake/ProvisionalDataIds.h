@@ -32,7 +32,8 @@ enum class ProvisionalDataId : std::uint32_t {
     DestinationPrimary = 20U,
     DestinationSecondary = 21U,
     DestinationAvailability = 22U,
-    ManualTransportRequest = 23U
+    ManualTransportRequest = 23U,
+    MachineModel = 24U
 };
 
 [[nodiscard]] constexpr std::uint32_t ToDataId(
@@ -41,6 +42,6 @@ enum class ProvisionalDataId : std::uint32_t {
 }
 
 static_assert(ToDataId(ProvisionalDataId::MachineConnectionState) == 1U);
-static_assert(ToDataId(ProvisionalDataId::ManualTransportRequest) == 23U);
+static_assert(ToDataId(ProvisionalDataId::MachineModel) == 24U);
 
 }  // namespace ShelfManager::Infrastructure::Fake

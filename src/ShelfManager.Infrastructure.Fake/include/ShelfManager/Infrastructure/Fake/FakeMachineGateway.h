@@ -7,13 +7,13 @@
 
 #include "ShelfManager/Application/IClock.h"
 #include "ShelfManager/Application/IMachineCommandGateway.h"
+#include "ShelfManager/Application/IMachineModelProvider.h"
 #include "ShelfManager/Application/IMachineStateReader.h"
 #include "ShelfManager/Infrastructure/Fake/FakeScenario.h"
 
 namespace ShelfManager::Infrastructure::Fake {
 
-// CSVまたはFakeScenarioの時系列Snapshotと要求記録を提供する開発用Gateway。
-// IMachineStateReader／IMachineCommandGatewayのApplication契約を再現するが、
+// CSVまたはFakeScenarioの時系列Snapshot、固定機種、要求記録を提供する開発用Gateway。
 // COM apartment、Ethernet、BSTR、ベンダーtimeout、物理搬送は再現しない。
 // Scenarioの次Frameへ進むと、そのFrameのSnapshotとOnDemand詳細がFake内変更を置き換える。
 //
@@ -23,7 +23,8 @@ namespace ShelfManager::Infrastructure::Fake {
 // 所有権: clockは所有せず、Gatewayより長く生存する必要がある。scenarioは値として所有する。
 class FakeMachineGateway final
     : public ShelfManager::Application::IMachineStateReader,
-      public ShelfManager::Application::IMachineCommandGateway {
+      public ShelfManager::Application::IMachineCommandGateway,
+      public ShelfManager::Application::IMachineModelProvider {
 public:
     FakeMachineGateway(
         ShelfManager::Application::IClock& clock,
@@ -35,6 +36,10 @@ public:
     [[nodiscard]] ShelfManager::Domain::Result<
         ShelfManager::Application::MachineSnapshotFragment>
     Read(const ShelfManager::Application::MonitoringRequest& request) override;
+
+    // Scenarioに固定された機種を返す。時刻やFrameによって変化しない。
+    [[nodiscard]] ShelfManager::Domain::Result<ShelfManager::Domain::MachineModel>
+    CurrentMachineModel() override;
 
     // baseVersionと全expected値が一致する場合だけ、候補Queueを一括検証して反映する。
     // 成功ReceiptはFake内状態への反映を示すが、実機書込みや物理動作は保証しない。

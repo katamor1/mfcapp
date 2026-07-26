@@ -45,6 +45,7 @@ at_ms,data_id,sub_id1,sub_id2,value
 0,20,2,0,1
 0,21,2,0,0
 0,22,2,0,available
+0,24,0,0,provisional-model-1
 1000,10,1,0,machining
 1000,11,1,0,1
 1000,12,1,0,0

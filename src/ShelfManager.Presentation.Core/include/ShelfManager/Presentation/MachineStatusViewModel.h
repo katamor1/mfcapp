@@ -20,12 +20,17 @@ struct MachineStatusViewModel final {
     std::wstring connectionText;
     std::wstring machineText;
     std::wstring freshnessText;
+    std::wstring machineModelText;
+    std::wstring operationAvailabilityText;
     std::wstring messageText;
     StatusLampState connectionLamp{StatusLampState::Unknown};
     StatusLampState machineLamp{StatusLampState::Unknown};
 
-    // SAFETY: PresenterがConnected／Fresh／機械Errorなしを確認した場合だけtrueとなる。
-    // View側の都合でtrueへ上書きしてはならない。
+    // SAFETY: 機種SessionがResolvedの場合だけtrueとなる。
+    bool safetyOperationsEnabled{false};
+
+    // SAFETY: Presenterが機種確定、Connected、Fresh、機械Errorなしを
+    // すべて確認した場合だけtrueとなる。View側でtrueへ上書きしてはならない。
     bool controlsEnabled{false};
 
     // 初回Snapshot未取得中であることを示す。trueの間は操作を受け付けない。
@@ -37,9 +42,14 @@ struct MachineStatusViewModel final {
         return left.connectionText == right.connectionText &&
                left.machineText == right.machineText &&
                left.freshnessText == right.freshnessText &&
+               left.machineModelText == right.machineModelText &&
+               left.operationAvailabilityText ==
+                   right.operationAvailabilityText &&
                left.messageText == right.messageText &&
                left.connectionLamp == right.connectionLamp &&
                left.machineLamp == right.machineLamp &&
+               left.safetyOperationsEnabled ==
+                   right.safetyOperationsEnabled &&
                left.controlsEnabled == right.controlsEnabled &&
                left.synchronizing == right.synchronizing;
     }

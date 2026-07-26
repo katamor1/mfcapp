@@ -90,6 +90,12 @@ FakeMachineGateway::Read(
         std::move(fragment));
 }
 
+ShelfManager::Domain::Result<ShelfManager::Domain::MachineModel>
+FakeMachineGateway::CurrentMachineModel() {
+    return ShelfManager::Domain::Result<
+        ShelfManager::Domain::MachineModel>::Success(scenario_.Model());
+}
+
 ShelfManager::Domain::Result<ShelfManager::Application::PriorityChangeReceipt>
 FakeMachineGateway::ApplyPriorityChange(
     const ShelfManager::Domain::PriorityChangePlan& plan) {

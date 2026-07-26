@@ -6,6 +6,7 @@
 
 #include "ShelfManager/Application/IOperationCompletionSink.h"
 #include "ShelfManager/Application/IWorkpieceDetailRequestPort.h"
+#include "ShelfManager/Application/MachineModelSession.h"
 #include "ShelfManager/Application/MachineSnapshotStore.h"
 #include "ShelfManager/Application/MoveWorkpiecePriorityUseCase.h"
 #include "ShelfManager/Application/OperationExecutor.h"
@@ -128,8 +129,13 @@ std::shared_ptr<const MachineSnapshot> InitialSnapshot() {
 }
 
 struct QueuePresenterFixture final {
-    QueuePresenterFixture()
-        : moveUseCase(snapshotStore, machinePort, machinePort, operationStore),
+    explicit QueuePresenterFixture(const bool resolved = true)
+        : moveUseCase(
+              snapshotStore,
+              machinePort,
+              machinePort,
+              operationStore,
+              machineModelSession),
           executor(clock, operationStore, completionSink),
           presenter(
               view,
@@ -138,7 +144,12 @@ struct QueuePresenterFixture final {
               detailPort,
               operationStore,
               executor,
-              moveUseCase) {
+              moveUseCase,
+              machineModelSession) {
+        if (resolved) {
+            EXPECT_TRUE(machineModelSession.Observe(
+                MachineModel::ProvisionalModel1));
+        }
         const auto published = snapshotStore.Publish(InitialSnapshot());
         EXPECT_TRUE(published.HasValue());
     }
@@ -154,6 +165,7 @@ struct QueuePresenterFixture final {
     RecordingDetailPort detailPort;
     OperationStateStore operationStore;
     NoopCompletionSink completionSink;
+    MachineModelSession machineModelSession;
     MoveWorkpiecePriorityUseCase moveUseCase;
     OperationExecutor executor;
     CapturingQueueView view;
@@ -191,7 +203,8 @@ TEST(
     EXPECT_TRUE(fixture.view.last.canMoveDown);
 }
 
-TEST(MachiningQueuePresenterTests, ShowsSelectedInstructionsInExecutionOrder) {
+TEST(MachiningQueuePresenterTests,
+     ShowsSelectedInstructionsInExecutionOrder) {
     QueuePresenterFixture fixture;
     fixture.presenter.SelectWorkpiece(WorkpieceId(2U));
 
@@ -217,6 +230,38 @@ TEST(MachiningQueuePresenterTests, ShowsSelectedInstructionsInExecutionOrder) {
     EXPECT_EQ(1U, fixture.view.last.instructions[0].executionOrder);
     EXPECT_EQ(L"first.nc", fixture.view.last.instructions[0].name);
     EXPECT_EQ(2U, fixture.view.last.instructions[1].executionOrder);
+}
+
+TEST(MachiningQueuePresenterTests,
+     UnresolvedModelKeepsRowsButDisablesMovement) {
+    QueuePresenterFixture fixture(false);
+    fixture.presenter.Activate();
+    fixture.presenter.SelectWorkpiece(WorkpieceId(2U));
+
+    ASSERT_EQ(3U, fixture.view.last.rows.size());
+    EXPECT_TRUE(fixture.view.last.rows[1].selected);
+    EXPECT_FALSE(fixture.view.last.controlsEnabled);
+    EXPECT_FALSE(fixture.view.last.canMoveUp);
+    EXPECT_FALSE(fixture.view.last.canMoveDown);
+    EXPECT_NE(std::wstring::npos,
+              fixture.view.last.messageText.find(L"機種情報を確定"));
+}
+
+TEST(MachiningQueuePresenterTests,
+     MismatchLatchDisablesMovementAndRequestsRestart) {
+    QueuePresenterFixture fixture;
+    fixture.presenter.SelectWorkpiece(WorkpieceId(2U));
+    ASSERT_TRUE(fixture.machineModelSession.Observe(
+        MachineModel::ProvisionalModel2));
+
+    fixture.presenter.OnSnapshotChanged();
+
+    ASSERT_EQ(3U, fixture.view.last.rows.size());
+    EXPECT_FALSE(fixture.view.last.controlsEnabled);
+    EXPECT_FALSE(fixture.view.last.canMoveUp);
+    EXPECT_FALSE(fixture.view.last.canMoveDown);
+    EXPECT_NE(std::wstring::npos,
+              fixture.view.last.messageText.find(L"再起動"));
 }
 
 }  // namespace

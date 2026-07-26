@@ -7,25 +7,26 @@
 #include "ShelfManager/Domain/MachiningInstruction.h"
 #include "ShelfManager/Domain/MachiningQueue.h"
 #include "ShelfManager/Domain/Result.h"
+#include "ShelfManager/Domain/ToolIdentifier.h"
 
 namespace ShelfManager::Domain {
 
 // 一つの工具について加工場管理システムへ渡す予定使用量。
 // usageTimeの単位は正式な外部契約が確定するまで変換せず整数値で保持する。
 struct ToolUsageRequirement final {
-    std::uint64_t toolId;
+    ToolIdentifier identifier;
     std::uint64_t usageTime;
 
     friend bool operator==(
         const ToolUsageRequirement& left,
-        const ToolUsageRequirement& right) noexcept {
-        return left.toolId == right.toolId &&
+        const ToolUsageRequirement& right) {
+        return left.identifier == right.identifier &&
                left.usageTime == right.usageTime;
     }
 
     friend bool operator!=(
         const ToolUsageRequirement& left,
-        const ToolUsageRequirement& right) noexcept {
+        const ToolUsageRequirement& right) {
         return !(left == right);
     }
 };
@@ -102,7 +103,7 @@ enum class WorkpieceExecutability {
 // 加工場管理システムが返した工具可用性。
 // remainLifeTimeは負値を許容し、StatusがNotFoundの場合だけ欠落を許容する。
 struct ToolAvailabilityResult final {
-    std::uint64_t toolId;
+    ToolIdentifier identifier;
     std::uint64_t totalUsageTime;
     std::optional<std::int64_t> remainLifeTime;
     ToolAvailabilityStatus status;
@@ -110,7 +111,7 @@ struct ToolAvailabilityResult final {
     friend bool operator==(
         const ToolAvailabilityResult& left,
         const ToolAvailabilityResult& right) {
-        return left.toolId == right.toolId &&
+        return left.identifier == right.identifier &&
                left.totalUsageTime == right.totalUsageTime &&
                left.remainLifeTime == right.remainLifeTime &&
                left.status == right.status;
