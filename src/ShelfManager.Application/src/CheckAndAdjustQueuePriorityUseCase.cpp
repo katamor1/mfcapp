@@ -95,6 +95,8 @@ CheckAndAdjustQueuePriorityUseCase::Execute(
 
     const auto& plan = adjustment.Value().priorityChangePlan;
     if (!plan.changed) {
+        // WHY: 判定結果が現在の並びと同じ場合は正常なno-opとし、順位書込みと
+        // Standard読戻しを行わず、調整後の搬送候補だけを返す。
         return Result<CheckAndAdjustQueuePriorityOutcome>::Success(
             CheckAndAdjustQueuePriorityOutcome{
                 trigger,
@@ -122,8 +124,8 @@ CheckAndAdjustQueuePriorityUseCase::Execute(
             "Machine rejected the queue-priority adjustment.");
     }
 
-    // SAFETY: Gatewayのacceptedだけでは成功表示しない。
-    // 変更対象すべてのQueuePriorityがdesiredと一致した場合だけ成功とする。
+    // SAFETY: accepted後の読戻し失敗では、外部順位が既に変化した可能性がある。
+    // 同じexpectedVersionで自動再試行せず、新しいSnapshotで再評価する。
     const auto readback = stateReader_.Read(
         MonitoringRequest{MonitoringClass::Standard, std::nullopt});
     if (!readback.HasValue()) {
@@ -164,6 +166,8 @@ CheckAndAdjustQueuePriorityUseCase::ValidateRequest(
              "Queue-priority check request does not cover the current queue."});
     }
 
+    // SAFETY: APIへ送る工具計画と現在キューを位置ごとに照合し、古いRequestを
+    // 同じ件数の別キューへ誤って適用しない。
     for (std::size_t index = 0U; index < workpieces.size(); ++index) {
         if (workpieces[index].id != request.workpieces[index].workpieceId ||
             workpieces[index].priority !=
@@ -189,6 +193,8 @@ CheckAndAdjustQueuePriorityUseCase::VerifyReadback(
              "Priority readback did not contain fresh workpiece data."});
     }
 
+    // SAFETY: planに含まれる全assignmentを確認し、一部だけ反映された状態を
+    // QueuePriority変更済みとして成功にしない。
     for (const auto& assignment : plan.assignments) {
         const auto workpiece = std::find_if(
             fragment.workpieces->begin(),
