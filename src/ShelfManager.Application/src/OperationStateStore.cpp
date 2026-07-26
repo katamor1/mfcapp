@@ -105,8 +105,8 @@ bool OperationStateStore::HasOtherRunningOperationFor(
 bool OperationStateStore::ShouldShowOverlay(
     const ShelfManager::Domain::TimePoint now) const {
     std::scoped_lock lock(mutex_);
-    // WHY: Overlayは操作全体の最古時刻や平均時間ではなく、500msを越えたRunning Recordが
-    // 一件でも存在するかで判定する。完了Recordは保持していても表示対象から除外する。
+    // WHY: Overlayは操作全体の最古時刻や平均時間ではなく、500ms以上継続した
+    // Running Recordが一件でも存在するかで判定する。完了Recordは表示対象から除外する。
     return std::any_of(
         records_.begin(),
         records_.end(),
