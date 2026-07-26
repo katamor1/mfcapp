@@ -19,7 +19,8 @@ namespace ShelfManager::Infrastructure::Fake {
 //
 // THREAD: 状態読書きと観測用記録は内部mutexで直列化する。
 // 設定遅延中はmutexを保持しないため、複数呼出しの待機時間自体は重なり得る。
-// SAFETY: DisconnectedまたはStaleなFrameでは変更要求を拒否する。
+// SAFETY: 変更要求はMachineConnectionState::ConnectedかつFreshの場合だけ許可する。
+// Degraded／Disconnected／Unknown、Stale／UnavailableではFail Closedで拒否する。
 // 所有権: clockは所有せず、Gatewayより長く生存する必要がある。scenarioは値として所有する。
 class FakeMachineGateway final
     : public ShelfManager::Application::IMachineStateReader,
