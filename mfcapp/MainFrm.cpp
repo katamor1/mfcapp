@@ -70,7 +70,10 @@ void CMainFrame::OnSetFocus(CWnd* /*oldWindow*/) {
 }
 
 void CMainFrame::OnClose() {
-    // SAFETY: Window破棄前にSnapshot通知を止め、Monitoring Workerをjoinする。
+    // SAFETY: CFrameWnd::OnCloseがShell Windowを破棄する前にComposition Rootを停止する。
+    // 新規操作受付を閉じて投入済みTaskを排出し、Monitoring Workerをjoinした後で、
+    // Snapshot／機種／操作完了SinkとPresenterをWindowから切り離す。
+    // 先にWindowを破棄するとWorkerが無効HWNDへ通知し、非所有参照が残る可能性がある。
     theApp.StopComposition();
     CFrameWnd::OnClose();
 }
