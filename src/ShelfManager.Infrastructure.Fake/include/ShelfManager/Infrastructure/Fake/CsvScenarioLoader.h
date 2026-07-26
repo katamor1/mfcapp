@@ -11,8 +11,9 @@ namespace ShelfManager::Infrastructure::Fake {
 
 // 暫定dataIdを使用するCSV応答をFakeScenarioへ変換する開発用Loader。
 // CSV構文、Header、時系列、同一時刻・同一Address重複等のScenario定義不備は
-// InvalidArgumentとして扱う。定義済みAddressの欠落、値型、列挙値、Domain不変条件の
-// 違反はInvalidResponseとして扱い、どちらの場合も不完全なScenarioを返さない。
+// InvalidArgumentとして扱う。完全Frameに必要なAddressの欠落、値型、列挙値、
+// Domain不変条件の違反はInvalidResponseとして扱い、どちらの場合も
+// 不完全なScenarioを返さない。
 // 生成したScenarioはApplication Portを介して使用するため、
 // CSVからCOMへ差し替えてもApplication／Presentationは変更しない。
 class CsvScenarioLoader final {
