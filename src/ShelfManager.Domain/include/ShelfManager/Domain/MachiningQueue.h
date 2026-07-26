@@ -64,8 +64,8 @@ struct PriorityChangePlan final {
 class MachiningQueue final {
 public:
     // WorkpieceIdが一意で、QueuePriorityが1から重複・欠番なく連続する場合だけ
-    // キューを生成する。入力vectorは値で受け取り、呼出し側の順序を変更せず、
-    // 生成後の内部一覧だけをQueuePriority順へ正規化する。
+    // キューを生成する。値引数として受け取ったvectorだけをQueuePriority順へ
+    // 正規化し、外部Containerへの参照を保持しない。
     static Result<MachiningQueue> Create(
         SnapshotVersion version,
         std::vector<WorkpieceSummary> workpieces);
