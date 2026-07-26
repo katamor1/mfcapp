@@ -16,6 +16,8 @@ namespace {
 using namespace ShelfManager::Domain;
 
 // BSTRの解放責任をこのRAII型へ集約し、Raw API境界の外へ所有権を漏らさない。
+// 所有権: 現行Adapter契約では保持中のPointerをSysFreeStringで一度だけ解放する。
+// 正式ベンダー契約が異なる場合はIRawQueuePriorityCheckApiと本型を同じ変更で見直す。
 class BstrOwner final {
 public:
     BstrOwner() noexcept = default;
@@ -46,6 +48,8 @@ public:
     }
 
     [[nodiscard]] BSTR* Put() noexcept {
+        // SAFETY: out-parameterとして再利用する前に旧値を解放し、Raw APIが失敗しても
+        // 所有権が二重化しないnull状態から受け取る。
         SysFreeString(value_);
         value_ = nullptr;
         return &value_;
@@ -60,6 +64,8 @@ Result<T> Failure(const ErrorCode code, std::string message) {
     return Result<T>::Failure({code, std::move(message)});
 }
 
+// SOURCE: Domain／JSON側はUTF-8、Raw COM境界はUTF-16 BSTRを使用する。
+// null終端に依存せず明示長で変換し、不正byte sequenceへ置換文字を挿入しない。
 Result<std::wstring> Utf8ToWide(const std::string_view text) {
     if (text.empty()) {
         return Result<std::wstring>::Success(std::wstring{});
@@ -100,6 +106,8 @@ Result<std::wstring> Utf8ToWide(const std::string_view text) {
     return Result<std::wstring>::Success(std::move(converted));
 }
 
+// SOURCE: BSTRはSysStringLenで得た明示長を使用し、JSON Codecへ渡すUTF-8へ変換する。
+// 不正UTF-16は外部応答不正として扱い、部分変換した文字列を採用しない。
 Result<std::string> WideToUtf8(const std::wstring_view text) {
     if (text.empty()) {
         return Result<std::string>::Success(std::string{});
@@ -144,12 +152,17 @@ Result<std::string> WideToUtf8(const std::wstring_view text) {
     return Result<std::string>::Success(std::move(converted));
 }
 
+// WHY: 正式なHRESULT一覧が未確定のため、意味を断定できるE_NOTIMPLだけを
+// UnsupportedDataへ写像し、それ以外の失敗をUnavailableへ集約する。
+// ベンダー契約受領後は推測で分岐を増やさず、この関数と契約テストを同時に更新する。
 ErrorCode MapHresult(const HRESULT result) noexcept {
     return result == E_NOTIMPL
                ? ErrorCode::UnsupportedData
                : ErrorCode::Unavailable;
 }
 
+// SAFETY: 一回のRaw API呼出しでは送信・応答解析・結果採用に同じProfileを使う。
+// Sessionが未確定またはMismatchLatchedへ変化した場合は、外部結果を採用しない。
 Result<void> ConfirmSameProfile(
     const ShelfManager::Application::IMachineModelProfileSource& source,
     const MachineModelProfile& expected,
@@ -218,6 +231,8 @@ Result<QueuePriorityCheckResponse> ComQueuePriorityCheckGateway::Check(
             "Could not allocate BSTR for queue-priority input.");
     }
 
+    // 所有権: inputは本ScopeのRAII所有、outputはnull状態からRaw APIへ渡し、
+    // 成否にかかわらず返却されたBSTRを本Scope終了時に解放する。
     BstrOwner output;
     const auto rawResult = rawApi_.Check(input.Get(), output.Put());
     if (FAILED(rawResult)) {
