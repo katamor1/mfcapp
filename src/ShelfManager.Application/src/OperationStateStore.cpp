@@ -7,6 +7,8 @@
 namespace ShelfManager::Application {
 namespace {
 
+// SOURCE: 500ms未満の操作では待機表示を出さず、長時間操作だけを明示するMVP要件。
+// Storeは表示開始時刻を決めるだけで、Modal化や画面入力抑止は行わない。
 constexpr auto kOverlayDelay = std::chrono::milliseconds(500);
 
 }  // namespace
@@ -25,10 +27,13 @@ ShelfManager::Domain::Result<void> OperationStateStore::Start(
         records_.end(),
         [id](const auto& record) { return record.id == id; });
     if (existing != records_.end()) {
+        // SAFETY: 完了済みRecordも保持するため、同じIDを再利用して履歴を上書きしない。
         return Result<void>::Failure(
             {ErrorCode::Conflict, "Operation ID already exists."});
     }
 
+    // WHY: Running Recordを先に公開すると、Task自身が同一Workpieceの競合を調べる際に
+    // 自分のOperationIdを除外できる。Taskの実行開始時刻ではなく受付時刻を記録する。
     records_.push_back(OperationRecord{
         id,
         kind,
@@ -100,6 +105,8 @@ bool OperationStateStore::HasOtherRunningOperationFor(
 bool OperationStateStore::ShouldShowOverlay(
     const ShelfManager::Domain::TimePoint now) const {
     std::scoped_lock lock(mutex_);
+    // WHY: Overlayは操作全体の最古時刻や平均時間ではなく、500msを越えたRunning Recordが
+    // 一件でも存在するかで判定する。完了Recordは保持していても表示対象から除外する。
     return std::any_of(
         records_.begin(),
         records_.end(),
@@ -127,10 +134,13 @@ ShelfManager::Domain::Result<void> OperationStateStore::Complete(
             {ErrorCode::NotFound, "Operation ID was not found."});
     }
     if (record->phase != OperationPhase::Running) {
+        // SAFETY: 二重完了で先に記録された成功・失敗・完了時刻を上書きしない。
         return Result<void>::Failure(
             {ErrorCode::Conflict, "Operation has already completed."});
     }
 
+    // WHY: phase、completedAt、errorを同じmutex区間で更新し、Readerが中間状態を
+    // 観測しないようにする。Recordは削除せず、後続のUI表示と診断に利用する。
     record->phase = phase;
     record->completedAt = completedAt;
     record->error = std::move(error);
