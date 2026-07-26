@@ -13,6 +13,9 @@ namespace {
 using namespace std::chrono_literals;
 using namespace ShelfManager::Domain;
 
+// WHY: StandardDemoはSource code内で定義する固定Fixtureであり、ここでの不正値は
+// 外部入力エラーではなく開発時のProgramming errorである。CSV入力はLoader側で
+// Resultとして拒否し、この例外経路へ流さない。
 QueuePriority Priority(const std::uint32_t value) {
     auto result = QueuePriority::Create(value);
     if (!result.HasValue()) {
@@ -110,6 +113,8 @@ MachineSnapshot Snapshot(
                   WorkpieceStatus::WaitingForMachining,
                   "work-3.nc")};
 
+    // WHY: RackStateを別の手書きFixtureとして二重管理せず、WorkpieceLocationから
+    // 導出してSnapshot内の所在と占有表示が常に一致するようにする。
     std::vector<RackOccupancy> occupied;
     for (const auto& workpiece : workpieces) {
         if (const auto* slot = std::get_if<RackSlot>(&workpiece.location)) {
@@ -146,6 +151,8 @@ ShelfManager::Domain::Result<FakeScenario> FakeScenario::Create(
     using ShelfManager::Domain::ErrorCode;
     using ShelfManager::Domain::Result;
 
+    // SAFETY: 未登録機種を既定のToolid契約へ補正せず、Scenario生成時点で拒否する。
+    // Fakeでも本番Adapterと同じMachineModelProfileRegistryを正本とする。
     const auto profile = ShelfManager::Domain::MachineModelProfileRegistry::Resolve(
         model);
     if (!profile.HasValue()) {
@@ -158,6 +165,8 @@ ShelfManager::Domain::Result<FakeScenario> FakeScenario::Create(
              "A fake scenario must begin with a frame at zero milliseconds."});
     }
 
+    // WHY: 入力を暗黙にSortするとFixtureの記述誤りを隠すため、呼出し側が指定した
+    // 順序をそのまま検証し、同時刻Frameと時刻逆行をInvalidArgumentにする。
     for (std::size_t index = 1U; index < frames.size(); ++index) {
         if (frames[index].offset <= frames[index - 1U].offset) {
             return Result<FakeScenario>::Failure(
@@ -174,6 +183,8 @@ FakeScenario FakeScenario::StandardDemo() {
     using namespace std::chrono_literals;
     using namespace ShelfManager::Domain;
 
+    // SOURCE: MVPの監視・画面回帰用に、加工待ち→加工中→異常中断→通信断→復旧を
+    // 決定論的な時系列として固定する。物理搬送時間や実ネットワーク揺らぎは再現しない。
     auto scenario = Create(
         MachineModel::ProvisionalModel1,
         {
@@ -242,6 +253,9 @@ std::size_t FakeScenario::FrameIndexAt(
     const ShelfManager::Domain::Duration elapsed) const noexcept {
     const auto elapsedMilliseconds =
         std::chrono::duration_cast<std::chrono::milliseconds>(elapsed);
+
+    // WHY: upper_boundで最初の未来Frameを探し、その直前を現在値とする。
+    // 最終Frame以降は最後の状態を保持し、Scenarioを自動的に先頭へ戻さない。
     const auto firstFuture = std::upper_bound(
         frames_.begin(),
         frames_.end(),
