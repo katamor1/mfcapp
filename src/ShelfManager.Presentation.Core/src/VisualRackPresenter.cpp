@@ -56,6 +56,9 @@ std::wstring LocationText(const WorkpieceLocation& location) {
 }
 
 bool IsInteractive(const MachineSnapshot& snapshot) {
+    // WHY: 棚の閲覧は最後のSnapshotで継続する一方、新しい選択はOnDemand I/Oを
+    // 発生させるため、Connected／Fresh／機械Errorなしの場合だけ許可する。
+    // 機種Profileは棚閲覧・詳細選択の契約に不要であり、ここでは判定しない。
     return snapshot.health.connectionState ==
                MachineConnectionState::Connected &&
            snapshot.freshness.state == DataFreshnessState::Fresh &&
@@ -89,6 +92,8 @@ void VisualRackPresenter::Activate() {
 }
 
 void VisualRackPresenter::OnSnapshotChanged() {
+    // WHY: MessageのVersionやFlagから表示状態を再構築せず、Storeの最新Snapshotへ
+    // 再収束する。通知がまとめられたり順序が前後しても古い棚状態へ戻さない。
     view_.Render(BuildViewModel());
 }
 
@@ -96,10 +101,14 @@ void VisualRackPresenter::SelectWorkpiece(const WorkpieceId workpieceId) {
     const auto snapshot = snapshotStore_.Current();
     if (!snapshot || !IsInteractive(*snapshot) ||
         FindWorkpiece(*snapshot, workpieceId) == nullptr) {
+        // SAFETY: 古い画面座標や通信停止中の入力で共有選択を変更せず、
+        // 存在しないWorkpieceのOnDemand要求も発行しない。
         return;
     }
 
     uiState_.SelectWorkpiece(workpieceId);
+    // 成功は詳細取得の要求登録までである。取得完了前はSnapshotのSummaryで選択表示し、
+    // 詳細結果は後続Snapshot通知で各Presenterが再取得する。
     detailRequests_.RequestWorkpieceDetail(workpieceId);
     view_.Render(BuildViewModel());
 }
@@ -116,6 +125,8 @@ VisualRackViewModel VisualRackPresenter::BuildViewModel() {
     viewModel.synchronizing = false;
     viewModel.controlsEnabled = IsInteractive(*snapshot);
     if (!viewModel.controlsEnabled) {
+        // WHY: 最後に公開された棚配置は消さず閲覧を継続し、変更可能に見える
+        // アイコン選択だけを停止する。
         viewModel.messageText =
             L"通信状態またはデータ鮮度を確認できないため選択を停止しています。";
     }
@@ -123,7 +134,8 @@ VisualRackViewModel VisualRackPresenter::BuildViewModel() {
     auto selected = uiState_.SelectedWorkpiece();
     if (selected.has_value() &&
         FindWorkpiece(*snapshot, *selected) == nullptr) {
-        // SAFETY: 消失したWorkpieceの選択を残し、別対象の詳細や操作へ流用しない。
+        // SAFETY: 消失したWorkpieceの共有選択を残し、加工順位・手動搬送画面で
+        // 別対象の詳細や操作へ流用しない。nullopt通知の処理方法はPort実装へ委ねる。
         uiState_.SelectWorkpiece(std::nullopt);
         detailRequests_.RequestWorkpieceDetail(std::nullopt);
         selected.reset();
@@ -161,6 +173,8 @@ VisualRackViewModel VisualRackPresenter::BuildViewModel() {
                                     *selected == workpiece->id;
                     slot.enabled = viewModel.controlsEnabled;
                 }
+                // SAFETY: RackStateだけに存在しSummaryを引けない不整合では、
+                // 推測したIDのIconを表示せず空Slotとして描画する。
             }
             level.slots.push_back(std::move(slot));
         }
@@ -170,6 +184,7 @@ VisualRackViewModel VisualRackPresenter::BuildViewModel() {
     if (selected.has_value()) {
         const auto* workpiece = FindWorkpiece(*snapshot, *selected);
         if (workpiece != nullptr) {
+            // 右側詳細は選択時点の最新Summaryで構築し、OnDemand完了を待たず表示する。
             viewModel.selectedWorkpiece.visible = true;
             viewModel.selectedWorkpiece.idText =
                 std::to_wstring(workpiece->id.Value());
