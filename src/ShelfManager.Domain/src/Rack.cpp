@@ -26,7 +26,7 @@ Result<RackLayout> RackLayout::Create(
     }
 
     for (const auto positionCount : positionsPerLevel) {
-        // WHY: 各段を同じ幅へ補正せず、入力順の段ごとに仕様範囲を検証する。
+        // WHY: 各段を同じ幅へ補正せず、値引数内の段順を維持して仕様範囲を検証する。
         // 一段でも不正なら部分的なLayoutを返さない。
         if (positionCount < kMinimumPositionsPerLevel ||
             positionCount > kMaximumPositionsPerLevel) {
