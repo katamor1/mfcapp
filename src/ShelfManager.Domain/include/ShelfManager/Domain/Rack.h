@@ -16,8 +16,8 @@ namespace ShelfManager::Domain {
 class RackLayout final {
 public:
     // positionsPerLevelの要素順が棚段1、2、…に対応する。
-    // 入力vectorは値で受け取り、呼出し側のContainerを変更しない。段数または
-    // 各段の位置数が仕様範囲外の場合は、部分Layoutを返さずInvalidArgumentとする。
+    // 値引数として受け取ったvectorだけを検証・保持し、外部Containerへの参照を残さない。
+    // 段数または各段の位置数が仕様範囲外なら、部分Layoutを返さずInvalidArgumentとする。
     static Result<RackLayout> Create(std::vector<std::uint32_t> positionsPerLevel);
 
     [[nodiscard]] std::size_t LevelCount() const noexcept;
