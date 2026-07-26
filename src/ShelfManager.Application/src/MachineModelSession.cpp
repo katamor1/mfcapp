@@ -5,6 +5,9 @@
 namespace ShelfManager::Application {
 namespace {
 
+// WHY: 通信断、timeout、取得処理内部の失敗だけでは、接続先の機種が変わったとは
+// 判断できない。一方、UnsupportedData／InvalidResponseは機種契約を保証できないため、
+// 確定後は一時障害として扱わずMismatchLatchedへ進める。
 bool IsTransientFailure(const ShelfManager::Domain::ErrorCode code) noexcept {
     using ShelfManager::Domain::ErrorCode;
     return code == ErrorCode::Unavailable ||
@@ -20,6 +23,7 @@ bool MachineModelSession::Observe(
 
     std::scoped_lock lock(mutex_);
     if (state_ == MachineModelSessionState::MismatchLatched) {
+        // SAFETY: ラッチ後の観測で状態を上書きせず、再起動まで操作禁止を維持する。
         return false;
     }
 
@@ -29,6 +33,7 @@ bool MachineModelSession::Observe(
     }
 
     if (state_ == MachineModelSessionState::Unresolved) {
+        // WHY: 最初の正常観測だけを採用し、以後のJSON契約を起動中固定する。
         state_ = MachineModelSessionState::Resolved;
         profile_ = resolved.Value();
         lastObservationError_.reset();
@@ -83,9 +88,12 @@ bool MachineModelSession::ObserveFailureLocked(
     using namespace ShelfManager::Domain;
 
     if (state_ == MachineModelSessionState::MismatchLatched) {
+        // SAFETY: どの後続エラーでもラッチを解除せず、最初の不一致状態を保持する。
         return false;
     }
 
+    // WHY: 診断messageの文言差だけでは通知を増やさず、状態またはErrorCodeの変化だけを
+    // UIが観測可能な変化として扱う。
     const auto previousCode = lastObservationError_.has_value()
                                   ? std::optional<ErrorCode>(
                                         lastObservationError_->code)
@@ -100,7 +108,8 @@ bool MachineModelSession::ObserveFailureLocked(
 
     lastObservationError_ = std::move(error);
     if (state_ == MachineModelSessionState::Resolved) {
-        // 一時障害では確定済みProfileを保持し、操作可否は既存の通信・鮮度条件で判定する。
+        // 一時障害は診断用に保持するが、確定済みProfileは破棄しない。
+        // 実際の操作可否は既存の通信・鮮度条件とUse Caseの再確認で判定する。
         return false;
     }
 
