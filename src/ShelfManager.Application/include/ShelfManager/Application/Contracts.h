@@ -23,8 +23,9 @@ using ShelfManager::Domain::WorkpieceDetail;
 using ShelfManager::Domain::WorkpieceId;
 using ShelfManager::Domain::WorkpieceSummary;
 
-// 監視データを更新頻度と用途で分類する。具体的な周期は
-// MonitoringPlanBuilderが管理し、この列挙値自体は時間を表さない。
+// 監視データを更新頻度と用途で分類する論理区分。
+// 具体的な周期はMonitoringPlanBuilderが管理し、この列挙値自体は期限、優先度、
+// timeout、ReaderのCOM apartmentを表さない。
 enum class MonitoringClass {
     Critical,
     Standard,
@@ -32,8 +33,8 @@ enum class MonitoringClass {
 };
 
 // IMachineStateReaderへ渡す一回分の読取要求。
-// selectedWorkpieceはOnDemand読取の対象Hintであり、実装は必要に応じて
-// 対象を含むより広いFragmentを返してよい。
+// selectedWorkpieceはOnDemand読取の対象Hintであり、実装は必要に応じて対象を含む
+// より広いFragmentを返してよい。Request生成成功はReader実行や取得完了を保証しない。
 struct MonitoringRequest final {
     MonitoringClass monitoringClass;
     std::optional<WorkpieceId> selectedWorkpiece;
@@ -52,9 +53,11 @@ struct MonitoringRequest final {
     }
 };
 
-// 一回の監視読取で取得できた部分データを表す。
-// optionalがnulloptの項目は「値なし」ではなく「今回の読取対象外」を意味し、
-// MachineSnapshotAssemblerは既存値を暗黙に消去しない。
+// 一回の監視読取で取得できた部分データ。
+// optionalがnulloptの項目は「値が存在しない」や「既存値を削除する」ではなく、
+// 「今回の読取区分では取得対象外」を意味する。Assemblerは保持済みの別区分データを
+// 暗黙に消去しない。freshnessはこの一回の読取結果に対する値で、完成Snapshotの
+// Critical／Standard合成結果ではない。
 struct MachineSnapshotFragment final {
     std::optional<MachineHealth> health;
     std::optional<RackLayout> rackLayout;
@@ -64,6 +67,7 @@ struct MachineSnapshotFragment final {
     DataFreshness freshness;
 
     // OnDemandで取得した一件の詳細。Standard読取では設定しない。
+    // 値がある場合も、現在選択中のWorkpieceと一致するかは利用側が確認する。
     std::optional<WorkpieceDetail> workpieceDetail{};
 
     friend bool operator==(
@@ -85,8 +89,9 @@ struct MachineSnapshotFragment final {
     }
 };
 
-// QueuePriority変更要求に対する受付結果。
-// acceptedは要求受付だけを示し、実値一致は後続のStandard読戻しで確認する。
+// QueuePriority変更要求に対するGateway境界の受付結果。
+// acceptedは要求受付だけを示し、全Assignmentの実値一致、Snapshot更新、加工開始は
+// 後続のStandard読戻しや別Use Caseで確認する。
 struct PriorityChangeReceipt final {
     bool accepted;
 
@@ -103,8 +108,9 @@ struct PriorityChangeReceipt final {
     }
 };
 
-// Workpiece搬送要求。baseVersionは選択時のSnapshotVersionであり、
-// Gatewayは現在状態と一致しない要求をConflictとして拒否できる。
+// Workpiece搬送要求。baseVersion、対象、搬送先はUI操作時点など一回の判断から
+// 値として固定する。baseVersionは楽観排他Tokenであり、認証証跡、機械側要求ID、
+// 搬送の冪等性Keyではない。Gateway／Use Caseは現在状態と一致しない要求を拒否する。
 struct TransportRequest final {
     SnapshotVersion baseVersion;
     WorkpieceId workpieceId;
@@ -125,8 +131,9 @@ struct TransportRequest final {
     }
 };
 
-// 搬送要求に対する受付結果。
-// acceptedは物理搬送の開始・完了を保証しないため、状態監視で確定する。
+// 搬送要求に対するGateway境界の受付結果。
+// acceptedは物理搬送の開始、要求先到着、工程完了を保証しない。非冪等な要求で
+// 結果が不明な場合も、この値だけを根拠に自動再送せず状態監視で確認する。
 struct TransportReceipt final {
     bool accepted;
 
@@ -143,12 +150,14 @@ struct TransportReceipt final {
     }
 };
 
+// 認証Portへ問い合わせる業務操作の種類。認証方式や資格情報を表さない。
 enum class OperatorAction {
     ManualTransport
 };
 
 // Snapshotのどの表示領域が変化したかを示す通知Hint。
-// 受信側はこの値を正本にせず、MachineSnapshotStoreの最新値を再取得する。
+// 複数Flagを組み合わせられるが、受信側はこの値を状態の正本や完全な変更履歴にせず、
+// MachineSnapshotStoreの最新値を再取得する。通知の集約・重複・遅延を許容する。
 enum class SnapshotChangeFlag : std::uint32_t {
     None = 0U,
     Health = 1U << 0U,
@@ -175,6 +184,7 @@ constexpr SnapshotChangeFlag& operator|=(
     return left;
 }
 
+// flagがvalueに含まれるかを調べる。Noneはbitを持たないためtrueにはならない。
 [[nodiscard]] constexpr bool HasFlag(
     const SnapshotChangeFlag value,
     const SnapshotChangeFlag flag) noexcept {
@@ -182,8 +192,9 @@ constexpr SnapshotChangeFlag& operator|=(
             static_cast<std::uint32_t>(flag)) != 0U;
 }
 
-// Application process内で操作を追跡する識別子。
-// 永続IDや機械側の要求IDではなく、同一Store内で一意に割り当てる。
+// Application process内で操作受付から完了表示までを追跡する識別子。
+// 永続ID、WorkpieceId、機械側要求ID、再起動をまたぐCorrelation IDではない。
+// 数値順は現行Executorの受付順を反映するが、外部副作用の発生順や完了順を保証しない。
 class OperationId final {
 public:
     explicit constexpr OperationId(std::uint64_t value) noexcept : value_(value) {}
@@ -232,19 +243,25 @@ private:
     std::uint64_t value_;
 };
 
+// UIから登録できる操作種別。外部API名や物理工程状態ではない。
 enum class OperationKind {
     PriorityChange,
     ManualTransport
 };
 
+// OperationStateStoreが管理するApplication上の実行相。
+// Succeededは各Use Caseの成功契約を満たしたことを示し、物理工程全体の完了とは限らない。
 enum class OperationPhase {
     Running,
     Succeeded,
     Failed
 };
 
-// UI上の操作進捗と診断を保持するRecord。
-// startedAtとcompletedAtは同じIClock系列のTimePointを使用する。
+// UI上の操作進捗と診断を保持するprocess-local Record。
+// startedAtとcompletedAtは同じIClock系列のTimePointを使用し、壁時計時刻ではない。
+// OperationStateStoreはRunningではcompletedAt／errorなし、SucceededではcompletedAtあり・
+// errorなし、FailedではcompletedAt／errorありとなるよう更新する。Struct単体のAggregate
+// 初期化はこの組合せを検証しないため、正規の更新経路をStoreへ集約する。
 struct OperationRecord final {
     OperationId id;
     OperationKind kind;
