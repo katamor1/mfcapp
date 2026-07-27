@@ -103,7 +103,7 @@ ShelfManager::Domain::Result<void> RequestManualTransportUseCase::Execute(
             {ErrorCode::Conflict, "Manual transport uses an old snapshot."});
     }
 
-    // SAFETY: UIから渡されたIDと搬送先を最新Snapshotの値で照合し、消失した対象や
+    // SAFETY: 呼出し側から渡されたIDと搬送先を最新Snapshotの値で照合し、消失した対象や
     // 同じindexに現れた別搬送先へ要求を読み替えない。destinationは値で固定されている。
     const auto workpiece = std::find_if(
         snapshot->workpieces.begin(),
