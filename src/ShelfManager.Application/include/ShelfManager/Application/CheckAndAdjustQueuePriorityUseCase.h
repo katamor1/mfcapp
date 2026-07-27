@@ -13,21 +13,34 @@
 
 namespace ShelfManager::Application {
 
+// 加工可否判定を要求した業務上の発火点。
+// 本Use Caseでは検証順や順位調整アルゴリズムを切り替えず、Outcomeへ呼出し文脈を
+// 引き継ぐための値である。自動運転開始許可や搬送許可そのものを表さない。
 enum class QueuePriorityCheckTrigger {
     AutomaticOperationStart,
     BeforeMachiningTransport
 };
 
+// 加工可否判定と必要な順位調整が完了した時点のApplication結果。
+// orderedWorkpieceIdsは判定後の論理順序であり、MachineSnapshotStoreへ同じ順序が
+// 公開済みであることや、物理搬送が開始済みであることを示さない。
 struct CheckAndAdjustQueuePriorityOutcome final {
     QueuePriorityCheckTrigger trigger;
+
+    // trueは順位書込み受付後の直接Standard読戻しで全Assignmentを確認したことを示す。
+    // falseは外部書込み不要と判断した正常なno-opである。
     bool priorityChanged;
     std::vector<ShelfManager::Domain::WorkpieceId> orderedWorkpieceIds;
+
+    // 調整後の先頭Executable候補。加工場空き確認、搬送要求、搬送完了は別責務である。
     std::optional<ShelfManager::Domain::WorkpieceId>
         firstExecutableWorkpiece;
 };
 
 // 加工可否判定、現在キューとの照合、必要な順位書込み、Standard読戻しを
 // 一つの同期処理として調停する。物理搬送や自動運転開始そのものは行わない。
+// 直接読戻しは操作結果の確認にだけ使用し、MachineSnapshotStoreへのPublishや
+// Presentation通知は行わない。画面の最新化は後続の通常監視に委ねる。
 //
 // THREAD: Gateway I/Oと読戻しを同期実行するため、UI threadから直接呼び出さず、
 // Operation Executor等の管理されたWorker上で直列に実行する。
@@ -42,18 +55,22 @@ public:
         const IMachineModelProfileSource& profileSource);
 
     // 指定SnapshotVersionに対応する加工可否判定を実行し、ExecutableがNGの
-    // WorkpieceをQueuePriority末尾群へ安定移動する。
+    // WorkpieceをQueuePriority末尾群へ安定移動する。triggerは結果へそのまま
+    // 引き継ぐだけで、本処理内の安全条件や順位アルゴリズムを変更しない。
+    // requestは呼出し中だけ参照し、非同期利用や再試行のために保持しない。
     //
     // 前提:
     // - 機種プロファイルが確定済みで、不一致がラッチされていないこと。
     // - expectedVersionが現在のConnected／FreshなSnapshotと一致すること。
     // - requestが現在キュー全体を同じ順序・順位で含むこと。
+    // - Trigger固有の運転モード、加工場空き、搬送可否は呼出し側が別途確認すること。
     //
     // 成功時:
     // - priorityChangedがtrueなら、順位書込みを一度行い、Standard読戻しで
     //   全assignmentのdesired一致まで確認済みである。
     // - priorityChangedがfalseなら、順位書込みGatewayを呼ばない正常なno-opである。
     // - firstExecutableWorkpieceは調整後の搬送候補であり、搬送開始・完了を意味しない。
+    // - 直接読戻し結果はStoreへ公開しないため、Current()が直ちに新順位を返す保証はない。
     //
     // SAFETY: API失敗、不正応答、機種不一致、Snapshot競合、書込み拒否、
     // 読戻し不一致では自動運転開始または加工場搬送を確定してはならない。
