@@ -46,6 +46,8 @@ bool MachineModelSession::Observe(
         return false;
     }
 
+    // SAFETY: 新しく観測したProfileへ切り替えず、最初に固定したprofile_を診断用に
+    // 保持したままMismatchLatchedへ進める。RequireProfileは以後必ずConflictとなる。
     state_ = MachineModelSessionState::MismatchLatched;
     lastObservationError_ = Error{
         ErrorCode::Conflict,
@@ -68,6 +70,7 @@ MachineModelSession::RequireProfile() const {
         return Result<MachineModelProfile>::Success(*profile_);
     }
     if (state_ == MachineModelSessionState::MismatchLatched) {
+        // profile_に最初のProfileが残っていても、診断以外へ再利用しない。
         return Result<MachineModelProfile>::Failure(
             {ErrorCode::Conflict,
              "Machine model mismatch is latched until application restart."});
@@ -79,6 +82,8 @@ MachineModelSession::RequireProfile() const {
 
 MachineModelSessionSnapshot MachineModelSession::CurrentState() const {
     std::scoped_lock lock(mutex_);
+    // 値コピーを返すため、呼出し側はロック解除後に内部optionalへの参照を保持しない。
+    // ただし取得直後の状態不変性は保証しないので、外部要求前にはRequireProfileを使う。
     return MachineModelSessionSnapshot{
         state_, profile_, lastObservationError_};
 }
@@ -101,6 +106,7 @@ bool MachineModelSession::ObserveFailureLocked(
 
     if (state_ == MachineModelSessionState::Resolved &&
         !IsTransientFailure(error.code)) {
+        // 契約不正時も旧Profileへ戻って操作を継続せず、再起動までラッチする。
         state_ = MachineModelSessionState::MismatchLatched;
         lastObservationError_ = std::move(error);
         return true;
