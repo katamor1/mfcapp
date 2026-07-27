@@ -32,7 +32,7 @@ public:
 
     // operationIdはOperationStateStore内で現在実行中の自分自身を重複判定から除外する
     // process-local IDであり、機械側要求IDや冪等性KeyとしてGatewayへ渡さない。
-    // expectedVersion、workpieceId、destinationは一回のUI判断から値として固定され、
+    // expectedVersion、workpieceId、destinationは呼出し側の一回の判断から値として固定され、
     // 現在Snapshotと一致しない場合は外部要求前にConflictとして拒否する。
     //
     // 機種プロファイルと既存安全条件を確認した後、非冪等の可能性がある搬送要求を
