@@ -25,7 +25,8 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
     using namespace ShelfManager::Domain;
 
     // SAFETY: 機種未確定または不一致時は、Snapshotや操作状態を参照する前に
-    // 終了し、順位変更Gatewayへ到達しない。
+    // 終了し、順位変更Gatewayへ到達しない。この確認結果は長時間有効なTokenではなく、
+    // 計画生成後の外部書込み直前にもSessionを再確認する。
     const auto profile = profileSource_.RequireProfile();
     if (!profile.HasValue()) {
         return Result<void>::Failure(profile.ErrorValue());
@@ -47,6 +48,9 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
             {ErrorCode::Unavailable,
              "Priority move requires connected, fresh, healthy machine data."});
     }
+
+    // operationIdはExecutorが既に登録した現在Taskを重複判定から除外するためだけに使う。
+    // 機械側要求IDや再送用の冪等性Keyとして外部Gatewayへ渡さない。
     if (operationStateStore_.HasOtherRunningOperationFor(
             workpieceId,
             operationId)) {
@@ -55,6 +59,8 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
              "Another operation is already running for the workpiece."});
     }
 
+    // SAFETY: Snapshotのvector順をそのまま信用せず、Domain Queueで順位重複・欠番・
+    // WorkpieceId重複を再検証してから一段移動の計画を作る。
     const auto queue = MachiningQueue::Create(
         snapshot->version,
         snapshot->workpieces);
@@ -68,6 +74,7 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
     if (!plan.Value().changed) {
         // WHY: 先頭を上げる、または末尾を下げる操作は正常なno-opである。
         // 外部書込みと読戻しを行わず、同じ順位を不要に再送しない。
+        // Storeや通知も更新しないため、成功は外部状態変化を意味しない。
         return Result<void>::Success();
     }
 
@@ -89,6 +96,7 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
 
     // SAFETY: accepted後の読戻し失敗では、外部順位が既に変化した可能性がある。
     // 同じexpectedVersionで自動再試行せず、次のSnapshotから判断し直す。
+    // この直接Readは確認専用であり、Assembler、Store、Snapshot通知を経由しない。
     const auto readback = stateReader_.Read(
         MonitoringRequest{MonitoringClass::Standard, std::nullopt});
     if (!readback.HasValue()) {
@@ -103,6 +111,7 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
 
     // SAFETY: 変更対象の一部だけが反映された状態を成功にせず、
     // planに含まれる全assignmentの一致を要求する。
+    // 変更対象外Workpieceの完全な集合・順位やStore公開までは、この確認の対象外である。
     for (const auto& assignment : plan.Value().assignments) {
         const auto workpiece = std::find_if(
             readback.Value().workpieces->begin(),
@@ -117,6 +126,9 @@ ShelfManager::Domain::Result<void> MoveWorkpiecePriorityUseCase::Execute(
                  "Priority readback did not match the requested movement."});
         }
     }
+
+    // 成功時点では直接読戻しを確認済みだが、Storeは操作前Versionのままであり得る。
+    // UIは後続Monitoring Tickが公開する新Snapshotへ収束する。
     return Result<void>::Success();
 }
 
