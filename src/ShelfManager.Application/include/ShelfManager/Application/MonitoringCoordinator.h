@@ -24,6 +24,9 @@ namespace ShelfManager::Application {
 // 別スレッドから呼出し可能で、MonitoringPlanBuilder内で同期される。
 // 所有権: コンストラクターで受け取る全依存の所有権は保持しないため、
 // MonitoringCoordinatorより長く生存する必要がある。
+// 例外契約: Tickは依存Portが返すResult失敗だけを調停し、Clock、Reader、Provider、
+// Notification Sinkから漏れた例外を捕捉・変換しない。Production実装は期待可能な失敗を
+// 各PortのResult／Unknown／best-effort通知契約で表すこと。
 class MonitoringCoordinator final : public IWorkpieceDetailRequestPort {
 public:
     // 移行互換用。機種Providerを結線しない構成では通常Snapshot監視だけを行う。
@@ -54,6 +57,7 @@ public:
     // 全Reader呼出しが成功したことやSnapshotがFreshであることを意味しない。
     // 機種取得失敗は通常Snapshot公開を妨げず、Sessionの診断状態と操作可否だけを更新する。
     // Storeへの公開競合など、調停順序を保証できない失敗では後続要求を処理せずErrorを返す。
+    // 戻り値は期待可能な失敗だけを表し、依存実装から漏れた例外の回復を保証しない。
     [[nodiscard]] ShelfManager::Domain::Result<void> Tick();
 
     // 既存Application呼出しとの互換用。未実行要求は最新選択内容へ集約される。
