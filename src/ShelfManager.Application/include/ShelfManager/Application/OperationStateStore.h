@@ -10,7 +10,7 @@
 namespace ShelfManager::Application {
 
 // ユーザー操作の開始、完了、失敗を記録し、重複操作抑止と操作中表示に使う。
-// 完了済みRecordも診断・表示のためProcess終了まで保持し、このStoreから自動削除しない。
+// 完了済みRecordも診断・表示のためStoreの寿命中保持し、このStoreから自動削除しない。
 // 永続化、監査証跡、件数上限、履歴Pruneは提供せず、長期運用時の保持方針は上位責務である。
 // Taskの実行順、取消、Gateway副作用は管理せず、OperationExecutorとUse Caseが担当する。
 //
