@@ -41,12 +41,16 @@ MonitoringCoordinator::MonitoringCoordinator(
 ShelfManager::Domain::Result<void> MonitoringCoordinator::Tick() {
     using ShelfManager::Domain::Result;
 
+    // 例外契約: Tickは依存Portの例外を捕捉しない。Clock／Reader／Provider／Sinkは
+    // 期待可能な失敗をそれぞれの戻り値契約で表し、監視Worker境界へ例外を漏らさない。
     const auto now = clock_.Now();
 
     // WHY: 同一Tickで期限到来した区分はMonitoringPlanBuilderが定めた順序で
     // 一件ずつ読み、ReaderやAssemblerを並列に呼び出さない。
     // Dueが空の場合も正常成功であり、外部I/OやSnapshot公開は行われない。
     for (const auto& request : plan_.Due(now)) {
+        // 通信・COM・変換などの通常失敗はResultとして受け取り、Assemblerへ渡す。
+        // Reader例外を通信失敗として推測変換する処理はここにはない。
         const auto read = reader_.Read(request);
 
         if (request.monitoringClass == MonitoringClass::Standard) {
@@ -109,6 +113,7 @@ void MonitoringCoordinator::ObserveMachineModel() {
         return;
     }
 
+    // Providerの通常失敗はResultとしてSessionへ観測させ、例外はここで補正しない。
     const auto model = machineModelProvider_->CurrentMachineModel();
     const bool changed = model.HasValue()
                              ? machineModelSession_->Observe(model.Value())
@@ -119,6 +124,7 @@ void MonitoringCoordinator::ObserveMachineModel() {
         // WindowやPresenterを監視スレッドから直接操作しない。
         // Sinkはvoid契約のため配送成功を確認せず、次の通知またはSnapshot更新で
         // UIがProfile Sourceの最新状態へ再収束することを前提とする。
+        // 例外を隔離しないため、Sinkは配送失敗を例外として送出してはならない。
         machineModelNotificationSink_->OnMachineModelStateChanged();
     }
 }
@@ -139,7 +145,8 @@ ShelfManager::Domain::Result<void> MonitoringCoordinator::Publish(
         return published;
     }
     // Notification Sinkは配送結果を返さない。通知を状態の正本とせず、受信側は
-    // StoreのCurrentへ再取得して最新状態へ収束する。
+    // StoreのCurrentへ再取得して最新状態へ収束する。ここでは例外を隔離しないため、
+    // SinkはWindow消失やPostMessage失敗を例外として送出してはならない。
     notificationSink_.OnSnapshotPublished(
         outcome.snapshot->version,
         outcome.changeFlags);
