@@ -14,6 +14,8 @@ namespace ShelfManager::Application {
 // 所有権: requestを呼出し中だけ参照し、戻り値は呼出し側が値として所有する。
 // 前提: requestは呼出し側が保持する現在キュー全体をQueuePriority順に含むこと。
 // 再試行: 外部APIの冪等性が正式に確認されるまで、Gateway内部で自動再試行しない。
+// 例外契約: 通信、COM、JSON変換、不正応答などの期待可能な失敗はResult::Failureで返し、
+// 例外を通常の失敗分類や再試行指示として使用しない。
 class IQueuePriorityCheckGateway {
 public:
     virtual ~IQueuePriorityCheckGateway() = default;
@@ -21,6 +23,8 @@ public:
     // 一回の外部判定を実行する。成功しても、判定中に現在キューや機種Sessionが
     // 変化していないことまでは保証しないため、Use Caseが結果採用前に再確認する。
     // 不正応答は部分結果へ変換せずResultのErrorとして返すこと。
+    // Result失敗時に外部APIが呼出し前・呼出し中・応答解析後のどこまで進んだかは、
+    // ErrorCodeだけから推測せず、Gatewayの具体契約と診断証跡に従うこと。
     [[nodiscard]] virtual ShelfManager::Domain::Result<
         ShelfManager::Domain::QueuePriorityCheckResponse>
     Check(const ShelfManager::Domain::QueuePriorityCheckRequest& request) = 0;
