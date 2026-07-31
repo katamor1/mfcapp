@@ -20,6 +20,8 @@ enum class MachineModelSessionState {
 // UI、Use Case、Gatewayが一回の判断に使用する機種Session状態の値コピー。
 // 取得直後に別スレッドで状態が変わる可能性があるため、外部変更直前には
 // RequireProfileを再実行し、このSnapshotだけで安全性を確定しない。
+// Aggregate初期化自体はstate、profile、lastObservationErrorの組合せを検証しないため、
+// Production Sourceが一貫した組合せを返す責務を持つ。
 struct MachineModelSessionSnapshot final {
     MachineModelSessionState state{MachineModelSessionState::Unresolved};
     std::optional<ShelfManager::Domain::MachineModelProfile> profile;
@@ -45,6 +47,8 @@ struct MachineModelSessionSnapshot final {
 //
 // THREAD: Production実装はUI thread、監視Worker、操作Workerからの同時読取りを
 // 安全に処理すること。各呼出しは同期的で、COMやCSVの再取得は行わない。
+// 例外契約: 未確定・不一致はResultのErrorまたはState値で表し、UI／Gatewayへ
+// 例外を通常の操作禁止通知として送出しない。
 class IMachineModelProfileSource {
 public:
     virtual ~IMachineModelProfileSource() = default;
@@ -58,6 +62,7 @@ public:
 
     // 監視表示と操作可否の構築に使う現在状態の値コピーを返す。
     // lastObservationErrorは診断用であり、画面へ生メッセージを直接表示しない。
+    // 呼出し成功は、返却後も同じ状態が継続することを保証しない。
     [[nodiscard]] virtual MachineModelSessionSnapshot CurrentState() const = 0;
 };
 
