@@ -35,6 +35,8 @@ void MonitoringWorker::Start() {
             // WHY: 読取失敗はAssemblerがStale／Unavailableへ変換し、公開競合などの
             // Tick失敗もWorkerの恒久停止にはしない。次周期で最新状態へ収束を試みる。
             // Resultをここで保持・通知しないため、状態診断はSnapshot／Sessionを正本とする。
+            // 破棄しているのはResultだけであり、Tickから漏れた例外はここで捕捉しない。
+            // Production Port／Sinkは期待可能な失敗を例外ではなく契約済み戻り値で表すこと。
             static_cast<void>(coordinator_.Tick());
             std::this_thread::sleep_for(kSchedulerGranularity);
         }
