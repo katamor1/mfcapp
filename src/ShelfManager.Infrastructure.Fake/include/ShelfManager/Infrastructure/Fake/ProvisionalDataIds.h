@@ -6,6 +6,9 @@ namespace ShelfManager::Infrastructure::Fake {
 
 // 正式COM dataIdが割り当てられるまでCSV Mockで使用する暫定Catalog。
 // 暫定値をDomain、Application、Presentationへ持ち込まず、この境界へ集約する。
+// 数値はFixture互換のため明示固定するが、永続ID、公開API、正式COM互換値ではない。
+// 現行CsvScenarioLoaderは1～24の連続範囲を暫定Catalogとして受け付けるため、
+// 途中番号の再利用・削除・意味変更をせず、追加時はLoaderと契約テストを同時に更新する。
 // SOURCE: docs/architecture/decisions/0007-use-provisional-sequential-data-ids-and-csv-mock.md。
 // 正式ID受領時はProduction用CatalogとAdapter契約テストを更新し、
 // 数値が同じであっても本enumを正式契約として流用しない。
@@ -36,11 +39,13 @@ enum class ProvisionalDataId : std::uint32_t {
     MachineModel = 24U
 };
 
+// enum値をCSVの数値data_idへ変換するだけで、登録範囲や正式契約との一致は検証しない。
 [[nodiscard]] constexpr std::uint32_t ToDataId(
     const ProvisionalDataId value) noexcept {
     return static_cast<std::uint32_t>(value);
 }
 
+// 端点の意図しない変更を検出する。全中間値の重複・連続性検証を代替するものではない。
 static_assert(ToDataId(ProvisionalDataId::MachineConnectionState) == 1U);
 static_assert(ToDataId(ProvisionalDataId::MachineModel) == 24U);
 
