@@ -10,7 +10,11 @@ namespace ShelfManager::Application {
 
 // MonitoringCoordinator::Tickを専用Worker threadで繰り返し実行するLifecycle境界。
 // Tick間隔は期限判定を呼び出すScheduler粒度であり、Critical／Standard I/Oの完了期限や
-// 厳密なfpsを保証しない。Tick失敗はWorker停止条件にせず、次周期で再実行する。
+// 厳密なfpsを保証しない。TickがResultで返す失敗はWorker停止条件にせず、次周期で再実行する。
+//
+// 例外契約: Worker LoopはTickから漏れた例外を捕捉しない。Clock、Reader、Provider、
+// Notification SinkなどのProduction実装は期待可能な失敗を各Portの戻り値で表し、
+// 例外を通常の通信障害や配送失敗として送出してはならない。
 //
 // THREAD: StartとStopは所有するLifecycle Controllerが直列に呼び出すこと。
 // Stop実行中に別スレッドからStartを呼ぶ運用はサポートしない。完了済みStop後の
