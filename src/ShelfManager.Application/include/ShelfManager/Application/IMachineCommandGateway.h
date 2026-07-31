@@ -11,6 +11,10 @@ namespace ShelfManager::Application {
 // THREAD: 各呼出しは同期完了する契約であり、UI threadから直接呼ばない。
 // 所有権: plan／requestを呼出し中だけ参照し、非同期利用のために保持しない。
 // 再試行: 正式な冪等性契約がないため、失敗・結果不明時にGateway内部で自動再送しない。
+// 例外契約: 通信、COM、変換、外部拒否などの期待可能な失敗はResult::Failureまたは
+// accepted=falseで返し、例外を通常の失敗・再試行指示として使用しない。
+// SAFETY: Result失敗は副作用未発生を一律には保証しない。送信後に結果不明となる経路は、
+// 各Use Caseが読戻しまたはオペレーター確認へ戻し、同じ要求を自動再送しないこと。
 class IMachineCommandGateway {
 public:
     virtual ~IMachineCommandGateway() = default;
