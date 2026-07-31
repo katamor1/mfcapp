@@ -8,8 +8,8 @@ namespace ShelfManager::Application {
 // オペレーターが指定操作を実行できるかを外部認証元へ問い合わせるPort。
 // 認証方式、資格情報、セッション管理、監査記録をApplication／Domainへ露出させない。
 // 戻り値は問い合わせ時点の判断であり、長時間保持できる権限Tokenや承認証跡ではない。
-// 例外契約: 認証元への到達不能、session失効、判定不能などの期待可能な失敗は
-// Unknownへ集約し、例外を通常の認証結果として使用しない。
+// 例外契約: 認証元への到達不能や判定不能などの期待可能な失敗はUnknownで表し、
+// 明示的な不許可はDeniedとする。例外を通常の認証結果として使用しない。
 class IAuthorizationPort {
 public:
     virtual ~IAuthorizationPort() = default;
