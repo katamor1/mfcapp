@@ -6,6 +6,8 @@
 namespace ShelfManager::Domain {
 namespace {
 
+// SOURCE: 概略仕様書の「Workpieceに紐付く加工指示書は最大10件」。
+// 実行順の最大値ではなく、Sequenceに含められる参照件数の上限である。
 constexpr std::size_t kMaximumInstructionCount = 10U;
 
 }  // namespace
@@ -19,12 +21,15 @@ const std::string& MachiningInstructionName::Value() const noexcept {
 
 Result<MachiningInstructionSequence> MachiningInstructionSequence::Create(
     std::vector<MachiningInstructionRef> instructions) {
+    // SAFETY: 上限を超える入力を先頭10件へ切り詰めず、外部データ全体を拒否する。
     if (instructions.size() > kMaximumInstructionCount) {
         return Result<MachiningInstructionSequence>::Failure(
             {ErrorCode::InvalidArgument,
              "A workpiece may contain at most ten machining instructions."});
     }
 
+    // WHY: 入力配列順を正本にせず、型付きInstructionOrderで内部順序を固定する。
+    // 値引数として受け取ったvectorだけを並べ替え、外部Containerへの参照を保持しない。
     std::sort(
         instructions.begin(),
         instructions.end(),
@@ -32,6 +37,8 @@ Result<MachiningInstructionSequence> MachiningInstructionSequence::Create(
             return left.executionOrder < right.executionOrder;
         });
 
+    // 並べ替え後に隣接比較し、同じ実行順へ二つの指示書を割り当てる曖昧さを拒否する。
+    // 欠番や同名参照は別契約であり、ここでは補正・拒否しない。
     const auto duplicate = std::adjacent_find(
         instructions.begin(),
         instructions.end(),

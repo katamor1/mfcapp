@@ -11,9 +11,11 @@ class IOperationCompletionSink {
 public:
     virtual ~IOperationCompletionSink() = default;
 
-    // OperationStateStoreの完了更新後にWorker threadから呼ばれる。
+    // OperationStateStoreの完了更新を試みた後に、Task一件につき一度Worker threadから呼ばれる。
+    // Store更新が不変条件違反で失敗していても通知され得るため、受信側は必ずFind結果を確認する。
     // 実装はUIを同期呼出しせず、短時間で通知境界へ引き渡すこと。
-    // 例外はOperationExecutorが隔離するが、通知失敗をTask失敗へ上書きしない。
+    // 通常の配送失敗は例外にせず安全な診断を残して戻ること。予期しない例外は
+    // OperationExecutorが隔離するが、同じ通知を再試行せずTask結果も上書きしない。
     virtual void OnOperationCompleted(OperationId operationId) = 0;
 };
 

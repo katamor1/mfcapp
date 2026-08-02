@@ -26,15 +26,22 @@ struct SnapshotAssemblyOutcome final {
 // ない周期も新しいSnapshotVersionを発行しない。
 // Fragmentのnulloptはその監視区分で未取得の領域を表し、既存値の削除指示ではない。
 //
+// 本クラスが検証するのは必須領域の存在と差分であり、RackStateとWorkpiece一覧、
+// Destination一覧、QueuePriority等のCross-collection整合性はProducer／利用側の責務である。
+// monitoringClassはFreshnessの格納先を選ぶが、その区分で想定外のFieldが設定された
+// Fragmentを拒否しないため、Readerは監視区分ごとのField契約を守ること。
+//
 // THREAD: MonitoringCoordinatorが直列に呼び出す前提であり、同時呼出しは
 // サポートしない。公開後のSnapshotはイミュータブルである。
 // 所有権: Assemblerは最新組立Snapshotを共有所有し、Outcome／Currentの呼出し側も
 // shared_ptrを保持することで独立して寿命を延長できる。
+// AssemblerはOutcome生成時に内部current_を進め、後続のStore Publish失敗ではRollbackしない。
 class MachineSnapshotAssembler final {
 public:
     // Fragment内で値を持つ領域だけを更新する。必須情報が揃い、直前組立値から
     // 観測可能な変更がある場合だけ、新しいSnapshotとchangeFlagsを返す。
     // 成功Fragmentを受け付けても、値が等しければVersionと通知候補を増やさない。
+    // 成功はFragment構造を受理したことを示し、Store公開や集合整合性を保証しない。
     [[nodiscard]] SnapshotAssemblyOutcome AcceptSuccess(
         MonitoringClass monitoringClass,
         const MachineSnapshotFragment& fragment,
@@ -43,6 +50,7 @@ public:
     // Critical／Standard取得失敗をStaleまたはUnavailableとして反映する。
     // 最終正常値がある場合は破棄せず保持し、最後に取得できた値であることをFreshnessで示す。
     // OnDemand失敗だけでは、既存の全体Snapshotと最後のWorkpieceDetailを更新しない。
+    // ErrorはcodeだけをDataFreshnessへ保持し、messageや失敗履歴をSnapshotへ蓄積しない。
     [[nodiscard]] SnapshotAssemblyOutcome AcceptFailure(
         MonitoringClass monitoringClass,
         const ShelfManager::Domain::Error& error,

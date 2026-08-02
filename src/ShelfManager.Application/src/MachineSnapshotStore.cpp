@@ -32,6 +32,8 @@ ShelfManager::Domain::Result<void> MachineSnapshotStore::Publish(
                 std::memory_order_acquire)) {
             // THREAD: release成功後にCurrentのacquire読取りを行う呼出し側は、
             // Snapshot構築時に確定した全フィールドをイミュータブルな値として観測する。
+            // 成功直後に別Publisherがより新しいVersionへ差し替え得るため、呼出し側は
+            // Currentが引数snapshotと同一であり続けることを前提にしない。
             return Result<void>::Success();
         }
         // WHY: weak CASの失敗時はcurrentへその時点の最新Pointerが格納される。
@@ -43,6 +45,7 @@ std::shared_ptr<const ShelfManager::Domain::MachineSnapshot>
 MachineSnapshotStore::Current() const noexcept {
     // 所有権: atomic loadで共有所有権のCopyを返すため、後続PublishでStoreの最新値が
     // 差し替わっても、呼出し側が保持するSnapshotの寿命と内容は変化しない。
+    // 通知処理が遅延している場合は、通知Versionより新しいSnapshotを返してよい。
     return std::atomic_load_explicit(
         &latest_, std::memory_order_acquire);
 }

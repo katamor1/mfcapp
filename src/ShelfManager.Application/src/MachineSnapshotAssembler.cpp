@@ -44,6 +44,8 @@ SnapshotAssemblyOutcome MachineSnapshotAssembler::AcceptSuccess(
     const ShelfManager::Domain::TimePoint capturedAt) {
     // WHY: Fragmentのnulloptは「今回の監視区分では読まなかった」を表す。
     // 既に取得済みの別区分データを消去せず、値を持つ領域だけを置き換える。
+    // monitoringClassはFreshnessの格納先だけを選び、想定外Fieldの混入を拒否しない。
+    // Readerが監視区分ごとのField契約を守ることを前提とする。
     if (fragment.health.has_value()) {
         health_ = fragment.health;
     }
@@ -139,6 +141,8 @@ SnapshotAssemblyOutcome MachineSnapshotAssembler::TryAssemble(
         return {};
     }
 
+    // Assemblerは各集合の存在と差分を確認するが、Rack占有、Workpiece一覧、搬送先、
+    // QueuePriorityの相互整合をここで再構築・補正しない。
     const auto freshness = CombinedFreshness();
     SnapshotChangeFlag flags = SnapshotChangeFlag::None;
     if (!current_) {
@@ -176,6 +180,8 @@ SnapshotAssemblyOutcome MachineSnapshotAssembler::TryAssemble(
         return {};
     }
 
+    // 現行SnapshotVersion::Nextはuint64_t桁あふれを検出しない。
+    // Process寿命内で最大値へ到達しない前提であり、到達時の継続運転を保証しない。
     const SnapshotVersion version = current_
                                         ? current_->version.Next()
                                         : SnapshotVersion(1U);
@@ -191,6 +197,9 @@ SnapshotAssemblyOutcome MachineSnapshotAssembler::TryAssemble(
         *destinations_,
         freshness,
         workpieceDetail_});
+    // WHY: Assemblerの直前組立値として先に確定する。呼出し側のStore Publishが
+    // Conflict等で失敗してもcurrent_をRollbackしないため、Assembler::Currentと
+    // MachineSnapshotStore::Currentは一時的に異なる可能性がある。
     current_ = snapshot;
     return {std::move(snapshot), flags};
 }

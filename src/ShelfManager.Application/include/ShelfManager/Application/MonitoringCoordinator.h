@@ -16,16 +16,21 @@
 
 namespace ShelfManager::Application {
 
-// 監視計画、機械読取、Snapshot組立、機種観測、公開、変更通知を周期処理として調停する。
+// 監視計画、機械読取、Snapshot組立、機種観測、公開、変更通知を一回のTickで調停する。
 // readerの生データや通信エラーをPresentationへ直接渡さず、必ず型付き境界を通す。
+// 周期Loop、sleep、timeout、取消、Workerの開始・停止はMonitoringWorker／Adapterの責務である。
 //
 // THREAD: Tickは一つの監視Workerが直列に呼び出す。詳細要求は
 // 別スレッドから呼出し可能で、MonitoringPlanBuilder内で同期される。
 // 所有権: コンストラクターで受け取る全依存の所有権は保持しないため、
 // MonitoringCoordinatorより長く生存する必要がある。
+// 例外契約: Tickは依存Portが返すResult失敗だけを調停し、Clock、Reader、Provider、
+// Notification Sinkから漏れた例外を捕捉・変換しない。Production実装は期待可能な失敗を
+// 各PortのResult／Unknown／best-effort通知契約で表すこと。
 class MonitoringCoordinator final : public IWorkpieceDetailRequestPort {
 public:
-    // 移行互換用。機種Providerをまだ結線しない構成では通常Snapshot監視だけを行う。
+    // 移行互換用。機種Providerを結線しない構成では通常Snapshot監視だけを行う。
+    // この構成の存在は、機種未確定でも安全関連操作を許可してよいことを意味しない。
     MonitoringCoordinator(
         IClock& clock,
         IMachineStateReader& reader,
@@ -34,7 +39,8 @@ public:
         MachineSnapshotStore& store,
         ISnapshotNotificationSink& notificationSink);
 
-    // Standard監視周期で機種を再取得し、Session状態が変化した場合だけ専用通知を送る。
+    // Standard監視要求を処理する際に機種を一回観測し、Sessionの表示状態が
+    // 変化した場合だけ専用通知を送る。Critical／OnDemandでは機種Providerを呼ばない。
     MonitoringCoordinator(
         IClock& clock,
         IMachineStateReader& reader,
@@ -46,16 +52,21 @@ public:
         MachineModelSession& machineModelSession,
         IMachineModelStateNotificationSink& machineModelNotificationSink);
 
-    // 現時刻で期限到来した監視要求を同期実行し、変更があればSnapshotを公開する。
-    // 通信読取の失敗はStale／UnavailableなSnapshotへ変換する。機種取得失敗は
-    // 通常Snapshot公開を妨げず、Sessionの診断状態と安全操作可否だけを更新する。
+    // 現時刻で期限到来した監視要求を、Planが返した順序で一件ずつ同期実行する。
+    // 読取失敗はAssemblerへ渡してStale／Unavailableな状態へ変換するため、Tick成功は
+    // 全Reader呼出しが成功したことやSnapshotがFreshであることを意味しない。
+    // 機種取得失敗は通常Snapshot公開を妨げず、Sessionの診断状態と操作可否だけを更新する。
+    // Storeへの公開競合など、調停順序を保証できない失敗では後続要求を処理せずErrorを返す。
+    // 戻り値は期待可能な失敗だけを表し、依存実装から漏れた例外の回復を保証しない。
     [[nodiscard]] ShelfManager::Domain::Result<void> Tick();
 
     // 既存Application呼出しとの互換用。未実行要求は最新選択内容へ集約される。
+    // nulloptは新しいReader要求を登録せず、最後に取得済みの詳細をStoreから消去しない。
     void RequestOnDemand(
         std::optional<ShelfManager::Domain::WorkpieceId> selectedWorkpiece);
 
-    // IWorkpieceDetailRequestPortを実装し、OnDemand監視計画へ要求を登録する。
+    // IWorkpieceDetailRequestPortを実装し、OnDemand監視計画へlatest-wins要求を登録する。
+    // 登録成功はReader実行、詳細取得、Snapshot公開、画面反映を保証しない。
     void RequestWorkpieceDetail(
         std::optional<ShelfManager::Domain::WorkpieceId> selectedWorkpiece)
         override;

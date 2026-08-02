@@ -41,16 +41,22 @@ MonitoringCoordinator::MonitoringCoordinator(
 ShelfManager::Domain::Result<void> MonitoringCoordinator::Tick() {
     using ShelfManager::Domain::Result;
 
+    // 例外契約: Tickは依存Portの例外を捕捉しない。Clock／Reader／Provider／Sinkは
+    // 期待可能な失敗をそれぞれの戻り値契約で表し、監視Worker境界へ例外を漏らさない。
     const auto now = clock_.Now();
 
     // WHY: 同一Tickで期限到来した区分はMonitoringPlanBuilderが定めた順序で
     // 一件ずつ読み、ReaderやAssemblerを並列に呼び出さない。
+    // Dueが空の場合も正常成功であり、外部I/OやSnapshot公開は行われない。
     for (const auto& request : plan_.Due(now)) {
+        // 通信・COM・変換などの通常失敗はResultとして受け取り、Assemblerへ渡す。
+        // Reader例外を通信失敗として推測変換する処理はここにはない。
         const auto read = reader_.Read(request);
 
         if (request.monitoringClass == MonitoringClass::Standard) {
             // WHY: 通常Snapshot読取と機種取得は独立した結果として扱い、
             // 一方の失敗を理由に他方の観測結果を破棄しない。
+            // Standard Readerが同期的に停止している間は、この観測も開始されない。
             ObserveMachineModel();
         }
 
@@ -68,14 +74,18 @@ ShelfManager::Domain::Result<void> MonitoringCoordinator::Tick() {
 
         // SAFETY: 読取失敗時もin-flight状態を解除する。
         // 解除しないと、一度の通信異常で該当監視区分が永久に停止する。
+        // Publish失敗より前に解除するため、次Tickは最新状態の再取得を計画できる。
         plan_.MarkComplete(request.monitoringClass);
 
         const auto published = Publish(outcome);
         if (!published.HasValue()) {
             // Store競合など公開順序を保証できない場合は、そのTickの後続処理を続けない。
+            // 既に実行したReader／機種観測の副作用をRollbackすることはできない。
             return published;
         }
     }
+    // 成功は期限到来分を調停できたことを示す。個々のReader成功やFresh状態は、
+    // 公開されたSnapshotのFreshnessを取得して判断する。
     return Result<void>::Success();
 }
 
@@ -88,6 +98,7 @@ void MonitoringCoordinator::RequestWorkpieceDetail(
     std::optional<ShelfManager::Domain::WorkpieceId> selectedWorkpiece) {
     // 選択解除はPresentation側で詳細を非表示にするだけで成立する。
     // 対象なしのOnDemand要求をReaderへ送り、InvalidArgumentを発生させない。
+    // 最後に正常取得したworkpieceDetailをStoreから消去する命令でもない。
     if (!selectedWorkpiece.has_value()) {
         return;
     }
@@ -102,6 +113,7 @@ void MonitoringCoordinator::ObserveMachineModel() {
         return;
     }
 
+    // Providerの通常失敗はResultとしてSessionへ観測させ、例外はここで補正しない。
     const auto model = machineModelProvider_->CurrentMachineModel();
     const bool changed = model.HasValue()
                              ? machineModelSession_->Observe(model.Value())
@@ -110,6 +122,9 @@ void MonitoringCoordinator::ObserveMachineModel() {
     if (changed) {
         // THREAD: この呼出しは監視Worker上で行う。MFC SinkはPostMessageだけを実行し、
         // WindowやPresenterを監視スレッドから直接操作しない。
+        // Sinkはvoid契約のため配送成功を確認せず、次の通知またはSnapshot更新で
+        // UIがProfile Sourceの最新状態へ再収束することを前提とする。
+        // 例外を隔離しないため、Sinkは配送失敗を例外として送出してはならない。
         machineModelNotificationSink_->OnMachineModelStateChanged();
     }
 }
@@ -129,6 +144,9 @@ ShelfManager::Domain::Result<void> MonitoringCoordinator::Publish(
     if (!published.HasValue()) {
         return published;
     }
+    // Notification Sinkは配送結果を返さない。通知を状態の正本とせず、受信側は
+    // StoreのCurrentへ再取得して最新状態へ収束する。ここでは例外を隔離しないため、
+    // SinkはWindow消失やPostMessage失敗を例外として送出してはならない。
     notificationSink_.OnSnapshotPublished(
         outcome.snapshot->version,
         outcome.changeFlags);

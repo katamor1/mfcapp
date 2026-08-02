@@ -11,6 +11,8 @@ namespace ShelfManager::Application {
 //
 // THREAD: MonitoringCoordinatorが監視Worker上で同期的に呼び出す。
 // 実COM Adapterは自身のapartment制約を満たし、UIを直接更新してはならない。
+// 例外契約: 通信、COM、文字列変換、未知値などの期待可能な失敗は
+// Result::Failureで返す。Monitoring WorkerはProvider例外を監視診断へ変換しない。
 class IMachineModelProvider {
 public:
     virtual ~IMachineModelProvider() = default;
@@ -18,6 +20,7 @@ public:
     // 成功時は今回観測したMachineModelの値を返す。
     // 通信失敗、未知値、契約不正を既定機種へ補正せず、対応するErrorを返す。
     // 戻り値だけでは安全関連操作を許可せず、MachineModelSessionへ観測結果を渡すこと。
+    // 例外は一時障害や未対応機種を表す通常経路として使用しないこと。
     [[nodiscard]] virtual ShelfManager::Domain::Result<
         ShelfManager::Domain::MachineModel>
     CurrentMachineModel() = 0;

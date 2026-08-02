@@ -19,22 +19,33 @@ class ManualTransportPresenter;
 }
 
 // MFC Applicationの常設Shell。
-// 上部MachineStatus、左NavRail、中央Feature Hostを配置し、Snapshot、機種状態、
+// 上部MachineStatus、左NavRail、中央Feature Hostを所有し、Snapshot、機種状態、
 // 操作完了通知をUI thread上のPresenter更新へ中継する。業務判断やCOMアクセスは持たない。
+// Window Messageのpayloadを状態の正本にせず、Presenter／Storeから最新値を再取得する。
+//
+// THREAD: Create、Bind、画面切替、Message Handler、LayoutはUI thread上で直列に実行する。
+// Composition Rootが注入するPresenter／Serviceは非所有Pointerであり、通常終了では
+// Window破棄前にnullptrへ戻す。Shellは通知元WorkerやApplication Serviceを所有しない。
 class CAppShellView final : public CWnd {
 public:
     CAppShellView();
     ~CAppShellView() override;
 
+    // 親FrameのChild WindowとしてShellを作成し、OnCreateで全Child Controlを生成する。
+    // 成功はHWNDと子画面の作成までを示し、Presenter結線、初期描画、監視開始を保証しない。
     BOOL Create(CWnd* parent, const CRect& bounds, UINT controlId);
 
+    // Shellが所有する具象View／UI Storeへの参照を返す。参照は本Shell Objectの寿命内で、
+    // 各Child Windowが作成済みの期間だけUI操作に使用できる。所有権は呼出し側へ移らない。
     [[nodiscard]] CMachineStatusView& MachineStatusView() noexcept;
     [[nodiscard]] CVisualRackView& VisualRackView() noexcept;
     [[nodiscard]] CMachiningQueueView& MachiningQueueView() noexcept;
     [[nodiscard]] CManualTransportView& ManualTransportView() noexcept;
     [[nodiscard]] ShelfManager::Presentation::UiStateStore& UiState() noexcept;
 
-    // Presenterの所有権は保持しない。Composition RootはShell破棄前にnullptrへ戻す。
+    // Presenterの所有権は保持せず、BindだけではActivateやRenderを実行しない。
+    // Composition RootはShell破棄前、かつPresenter破棄前にnullptrへ戻す。
+    // Feature Viewへ渡したPointerも同じBind呼出しで更新する。
     void BindMachineStatusPresenter(
         ShelfManager::Presentation::MachineStatusPresenter* presenter) noexcept;
     void BindVisualRackPresenter(
@@ -44,16 +55,22 @@ public:
     void BindManualTransportPresenter(
         ShelfManager::Presentation::ManualTransportPresenter* presenter) noexcept;
 
-    // 完了QueueとOverlay判定に必要な依存を非所有で接続する。
-    // nullptrを渡すとTimerと通知配送を停止する。
+    // 完了QueueとOverlay判定に必要な依存を非所有で一組として接続する。
+    // 三つすべてが非nullの場合だけ50ms周期の表示判定Timerを開始する。通常はall-or-noneで
+    // 結線し、いずれかがnullならTimerを停止してOverlayを非表示へ収束させる。
+    // Bindは投入済みOperationを取消したり、OperationStateStoreを消去したりしない。
     void BindOperationServices(
         OperationCompletionMessageSink* completionSink,
         ShelfManager::Application::OperationStateStore* operationStateStore,
         ShelfManager::Application::IClock* clock) noexcept;
 
+    // Smoke Test専用の一回限りTimerを設定し、期限到来時に親FrameへWM_CLOSEをPostする。
+    // 0は拒否し、成功はTimer登録までを示す。同じIDの再登録は既存期限を置き換え得る。
     [[nodiscard]] bool ScheduleSmokeExit(UINT milliseconds);
 
     // 非Modal Overlayを切り替え、表示中はNavRailとFeature Hostへの入力を抑止する。
+    // 実行中Task、監視、機械状態帯の描画は継続し、取消・進捗・成功見込みは表さない。
+    // OverlayはOperationStateStoreの500ms境界をShell Timerがpollした表示結果である。
     void ShowOperationOverlay(bool visible);
 
 protected:

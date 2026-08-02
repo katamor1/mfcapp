@@ -5,6 +5,7 @@ namespace ShelfManager::Application {
 // 機種Sessionの状態または表示用診断分類が変化したことを通知するPort。
 // 通知は状態本体を運ばないHintであり、受信側はProfile Sourceから最新値を再取得する。
 // 同じ機種の再観測など、表示上の変化がない観測ごとに呼ばれる契約ではない。
+// MachineModelSessionが状態の正本であり、通知配送失敗でSessionを元へ戻さない。
 class IMachineModelStateNotificationSink {
 public:
     virtual ~IMachineModelStateNotificationSink() = default;
@@ -12,6 +13,8 @@ public:
     // THREAD: Monitoring Workerから呼び出される。MFC実装はPostMessage等で
     // UI threadへmarshalし、呼出しスレッド上でWindowやPresenterを操作しない。
     // 通知失敗を監視処理へ再送せず、次回通知またはSnapshot更新で最新状態へ収束させる。
+    // 例外契約: MonitoringCoordinator／WorkerはCallback例外を隔離しないため、
+    // Window消失やPostMessage失敗を例外として送出せず、安全な診断を残して戻ること。
     virtual void OnMachineModelStateChanged() = 0;
 };
 

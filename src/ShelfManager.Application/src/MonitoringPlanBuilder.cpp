@@ -17,6 +17,8 @@ std::vector<MonitoringRequest> MonitoringPlanBuilder::Due(
     const auto schedulePeriodic =
         [&requests, now](PeriodicState& state, const MonitoringClass type) {
             if (state.inFlight || now < state.nextDue) {
+                // nowが逆行しても期限を前倒しせず、次にnextDueへ到達するまで保留する。
+                // 本PlanはClock異常の診断Errorを生成しない。
                 return;
             }
             // SAFETY: Dueが返した直後からMarkCompleteまで同じ区分を再計画せず、
@@ -52,6 +54,7 @@ void MonitoringPlanBuilder::MarkComplete(
     std::scoped_lock lock(mutex_);
     // WHY: 成功・失敗を区別せず予約だけを解除する。失敗後の鮮度判断はAssembler、
     // 次回実行可否は周期期限または保留中OnDemand要求が決定する。
+    // 対応するDueなしで呼ばれても、falseを再設定するだけで履歴やErrorを作らない。
     switch (monitoringClass) {
         case MonitoringClass::Critical:
             critical_.inFlight = false;
@@ -71,6 +74,8 @@ void MonitoringPlanBuilder::RequestOnDemand(
     // WHY: 連続選択を全件Queueへ積まず、まだ実行していない要求は最後の選択へ
     // 上書きする。既存OnDemandがin-flightでもpendingを一件残すため、完了後に
     // 古い対象ではなく最新対象を取得する。
+    // nulloptも値として保持し、Plan単体では選択解除no-opへ変換しない。
+    // MonitoringCoordinatorは通常のPresentation経路でnulloptを登録前に除外する。
     onDemandWorkpiece_ = std::move(selectedWorkpiece);
     onDemandPending_ = true;
 }
